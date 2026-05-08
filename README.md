@@ -13,7 +13,7 @@ Imports `.json` patch definitions and `.asi/.dll/.ini` runtime hooks, validates 
 - **Multi-select mod cards** with visible checkboxes and instant patch preview.
 - **Byte-guard verify** — `Verify Bytes` runs the original-byte guards from each selected mod against your installed `0008/0.pamt` + `.paz` archives. Catches stale offsets, half-patched files, and wrong game versions before you apply anything.
 - **0.papgt backup / restore** — protects the registration file before every overlay write.
-- **ASI loader management** — detects Ultimate ASI Loader in `bin64`, lists installed plugins, enable/disable per file.
+- **ASI loader management** — detects the Ultimate ASI Loader in `bin64`, lists installed plugins, enable/disable per file.
 - **Nexus integration** (pending Nexus app registration):
   - One-click sign-in via the standard Nexus SSO flow — no API key paste, no password.
   - `nxm://` protocol handler — click *Mod Manager Download* on any Crimson Desert Nexus mod page and the file lands here automatically.
