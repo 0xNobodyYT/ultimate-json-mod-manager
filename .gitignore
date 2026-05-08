@@ -37,3 +37,6 @@ desktop.ini
 # Submission/private documents — never commit
 docs/NEXUS_REGISTRATION_EMAIL.md
 docs/*_PRIVATE*
+
+docs/RELEASE_INSTRUCTIONS.md
+docs/logo.png
