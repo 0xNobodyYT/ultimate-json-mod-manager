@@ -1,0 +1,35 @@
+# Build output
+*.exe
+*.pdb
+*.dll
+*.cache
+*.old
+
+# User runtime data (anything the running app writes)
+config.json
+mods/
+backups/
+.cache/
+
+# Update staging
+.cache/updates/
+.cache/extracted/
+.cache/downloads/
+
+# Crash dumps
+backups/crashes/
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+*.sln.docstates
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Allow LICENSE
+!LICENSE

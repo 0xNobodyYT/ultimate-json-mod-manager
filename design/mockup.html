@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crimson Desert JSON Mod Manager - Layout Mockup</title>
+  <style>
+    :root {
+      --bg: #0c0d0a;
+      --panel: #171812;
+      --panel-2: #202115;
+      --panel-3: #272614;
+      --line: #373323;
+      --text: #f4ead1;
+      --muted: #a99d7c;
+      --dim: #70684f;
+      --gold: #d8a640;
+      --gold-2: #f4c767;
+      --green: #65c586;
+      --red: #d85c4c;
+      --blue: #79a9d8;
+      --violet: #b286d8;
+      --shadow: 0 20px 60px rgba(0, 0, 0, .45);
+      --mono: "Cascadia Mono", "Consolas", monospace;
+      --display: "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    body.theme-ember {
+      --gold: #e28b3f;
+      --gold-2: #ffc06b;
+      --green: #8bd17f;
+      --blue: #8fb7d9;
+      --panel: #1d1510;
+      --panel-2: #271b13;
+      --line: #463225;
+    }
+
+    body.theme-frost {
+      --gold: #8cc7dd;
+      --gold-2: #bfefff;
+      --green: #7ed8c2;
+      --red: #df6d7b;
+      --blue: #9ec4ff;
+      --panel: #101821;
+      --panel-2: #152334;
+      --line: #2a4357;
+    }
+
+    body.theme-forest {
+      --gold: #c0b15e;
+      --gold-2: #ece18c;
+      --green: #77c66d;
+      --blue: #83b8a3;
+      --panel: #101910;
+      --panel-2: #182718;
+      --line: #31442c;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--display);
+      background:
+        radial-gradient(circle at 15% 10%, rgba(216, 166, 64, .2), transparent 34rem),
+        radial-gradient(circle at 88% 18%, rgba(121, 169, 216, .12), transparent 30rem),
+        linear-gradient(135deg, #111009 0%, #070806 55%, #141006 100%);
+      overflow-x: hidden;
+    }
+
+    body:before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,.9), rgba(0,0,0,.25));
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 100vh;
+      padding: 22px;
+      gap: 16px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 18px 20px;
+      border: 1px solid rgba(216, 166, 64, .32);
+      border-radius: 22px;
+      background: linear-gradient(135deg, rgba(32, 33, 21, .94), rgba(13, 14, 10, .92));
+      box-shadow: var(--shadow);
+    }
+
+    .brand {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .mark {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      color: #151007;
+      font: 900 26px var(--mono);
+      background: conic-gradient(from 220deg, #f4c767, #9f6724, #f4c767, #51401f, #f4c767);
+      box-shadow: 0 0 0 5px rgba(216, 166, 64, .11), 0 12px 32px rgba(216, 166, 64, .22);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(23px, 3vw, 34px);
+      letter-spacing: .02em;
+      line-height: 1.02;
+    }
+
+    .subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font: 13px var(--mono);
+    }
+
+    .status-strip {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 999px;
+      padding: 9px 12px;
+      color: var(--muted);
+      background: rgba(255,255,255,.045);
+      font: 12px var(--mono);
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 18px rgba(101, 197, 134, .65);
+    }
+
+    .dot.warn {
+      background: var(--gold);
+      box-shadow: 0 0 18px rgba(216, 166, 64, .65);
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: 300px minmax(520px, 1fr) 360px;
+      gap: 16px;
+      min-height: 0;
+    }
+
+    .panel {
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(32, 33, 21, .96), rgba(18, 19, 14, .96));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 16px;
+      border-bottom: 1px solid rgba(216, 166, 64, .16);
+      background: rgba(255,255,255,.03);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: .11em;
+      color: var(--gold-2);
+    }
+
+    .counter {
+      color: var(--dim);
+      font: 12px var(--mono);
+    }
+
+    .section {
+      padding: 14px;
+    }
+
+    .path-card {
+      padding: 13px;
+      border-radius: 16px;
+      background: rgba(0,0,0,.22);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .label {
+      color: var(--dim);
+      font: 11px var(--mono);
+      text-transform: uppercase;
+      letter-spacing: .09em;
+    }
+
+    .path {
+      margin-top: 6px;
+      color: var(--text);
+      font: 12px var(--mono);
+      line-height: 1.45;
+      word-break: break-all;
+    }
+
+    .small-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .theme-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .swatch {
+      min-height: 44px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.12);
+      background:
+        linear-gradient(135deg, var(--a), var(--b));
+      box-shadow: inset 0 0 0 2px rgba(0,0,0,.18);
+    }
+
+    .swatch.active {
+      outline: 2px solid var(--gold-2);
+      outline-offset: 2px;
+    }
+
+    button {
+      border: 0;
+      color: var(--text);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font: 700 12px var(--mono);
+      cursor: default;
+      background: rgba(255,255,255,.08);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+    }
+
+    button.primary {
+      color: #171006;
+      background: linear-gradient(135deg, var(--gold-2), var(--gold));
+      box-shadow: 0 12px 24px rgba(216,166,64,.18);
+    }
+
+    button.safe {
+      color: #08130d;
+      background: linear-gradient(135deg, #9be5b3, var(--green));
+    }
+
+    button.danger {
+      color: #180705;
+      background: linear-gradient(135deg, #ee8d7f, var(--red));
+    }
+
+    .mod-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .drop-zone {
+      margin-top: 14px;
+      border: 1px dashed rgba(244, 199, 103, .45);
+      border-radius: 18px;
+      padding: 18px 14px;
+      text-align: center;
+      background:
+        linear-gradient(135deg, rgba(216,166,64,.1), rgba(0,0,0,.18)),
+        repeating-linear-gradient(45deg, rgba(255,255,255,.025) 0 8px, transparent 8px 16px);
+    }
+
+    .drop-zone strong {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+
+    .drop-zone span {
+      color: var(--muted);
+      font: 12px var(--mono);
+    }
+
+    .mod-card {
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      padding: 12px;
+      background: rgba(0,0,0,.2);
+    }
+
+    .mod-card.active {
+      border-color: rgba(216, 166, 64, .55);
+      background: linear-gradient(135deg, rgba(216,166,64,.14), rgba(0,0,0,.18));
+    }
+
+    .mod-name {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .tag {
+      border-radius: 999px;
+      padding: 3px 7px;
+      color: #150f08;
+      background: var(--gold);
+      font: 10px var(--mono);
+      white-space: nowrap;
+    }
+
+    .mod-meta {
+      margin-top: 7px;
+      color: var(--muted);
+      font: 12px/1.4 var(--mono);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 12px 14px 0;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      padding: 9px 12px;
+      border-radius: 12px 12px 0 0;
+      color: var(--muted);
+      background: rgba(255,255,255,.045);
+      font: 12px var(--mono);
+      border: 1px solid rgba(255,255,255,.08);
+      border-bottom: 0;
+    }
+
+    .tab.active {
+      color: #120e07;
+      background: var(--gold);
+      border-color: rgba(216, 166, 64, .7);
+    }
+
+    .patch-area {
+      padding: 14px;
+      display: grid;
+      grid-template-columns: 190px 1fr;
+      gap: 14px;
+      overflow: hidden;
+    }
+
+    .preset-rail {
+      display: grid;
+      align-content: start;
+      gap: 9px;
+    }
+
+    .preset {
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(0,0,0,.22);
+      border: 1px solid rgba(255,255,255,.08);
+      font: 12px var(--mono);
+      color: var(--muted);
+    }
+
+    .preset.active {
+      color: var(--text);
+      border-color: rgba(101, 197, 134, .5);
+      background: linear-gradient(135deg, rgba(101,197,134,.16), rgba(0,0,0,.22));
+    }
+
+    .preset strong {
+      display: block;
+      color: var(--text);
+      font: 800 15px var(--display);
+      margin-bottom: 4px;
+    }
+
+    .patch-list {
+      min-height: 0;
+      overflow: auto;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.18);
+    }
+
+    .asi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .asi-card {
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.2);
+      padding: 14px;
+    }
+
+    .asi-card strong {
+      display: block;
+      margin-bottom: 7px;
+    }
+
+    .asi-card p {
+      margin: 0;
+      color: var(--muted);
+      font: 12px/1.45 var(--mono);
+    }
+
+    .asi-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .patch-row {
+      display: grid;
+      grid-template-columns: 46px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+    }
+
+    .toggle {
+      width: 38px;
+      height: 21px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.14);
+      padding: 3px;
+    }
+
+    .toggle:after {
+      content: "";
+      display: block;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: var(--dim);
+    }
+
+    .toggle.on {
+      background: rgba(101, 197, 134, .28);
+    }
+
+    .toggle.on:after {
+      margin-left: 17px;
+      background: var(--green);
+      box-shadow: 0 0 14px rgba(101,197,134,.6);
+    }
+
+    .patch-title {
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .patch-sub {
+      margin-top: 3px;
+      color: var(--muted);
+      font: 12px var(--mono);
+    }
+
+    .patch-file {
+      color: var(--dim);
+      font: 11px var(--mono);
+    }
+
+    .inspector {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      min-height: 0;
+    }
+
+    .check-grid {
+      display: grid;
+      gap: 9px;
+    }
+
+    .check {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 11px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.18);
+      border: 1px solid rgba(255,255,255,.075);
+      font: 12px var(--mono);
+    }
+
+    .badge {
+      padding: 4px 7px;
+      border-radius: 999px;
+      font: 10px var(--mono);
+      background: rgba(255,255,255,.08);
+      color: var(--muted);
+    }
+
+    .badge.ok {
+      color: #08130d;
+      background: var(--green);
+    }
+
+    .badge.warn {
+      color: #181008;
+      background: var(--gold);
+    }
+
+    .log {
+      min-height: 0;
+      margin: 14px;
+      padding: 13px;
+      border-radius: 16px;
+      background: #090a08;
+      border: 1px solid rgba(255,255,255,.08);
+      color: #c7bb9b;
+      font: 12px/1.55 var(--mono);
+      overflow: auto;
+    }
+
+    .log .good {
+      color: var(--green);
+    }
+
+    .log .warn-text {
+      color: var(--gold-2);
+    }
+
+    .bottombar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+      padding: 14px 16px;
+      border: 1px solid rgba(216, 166, 64, .32);
+      border-radius: 20px;
+      background: rgba(16,17,12,.92);
+      box-shadow: var(--shadow);
+    }
+
+    .summary {
+      color: var(--muted);
+      font: 12px var(--mono);
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 1180px) {
+      .main {
+        grid-template-columns: 1fr;
+      }
+
+      .patch-area {
+        grid-template-columns: 1fr;
+      }
+
+      .asi-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .app {
+        padding: 12px;
+      }
+
+      .topbar,
+      .bottombar {
+        grid-template-columns: 1fr;
+      }
+
+      .status-strip,
+      .actions {
+        justify-content: flex-start;
+      }
+
+      .patch-row {
+        grid-template-columns: 42px 1fr;
+      }
+
+      .patch-file {
+        grid-column: 2;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">CD</div>
+        <div>
+          <h1>Crimson Desert JSON Mod Manager</h1>
+          <div class="subtitle">overlay-safe patching, byte-guard validation, update-proof diagnostics</div>
+        </div>
+      </div>
+      <div class="status-strip">
+        <div class="pill"><span class="dot"></span> Game detected</div>
+        <div class="pill"><span class="dot warn"></span> 4 mods active</div>
+        <div class="pill">Build: 2026.05.08</div>
+      </div>
+    </header>
+
+    <main class="main">
+      <aside class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Install</h2>
+          <span class="counter">Steam</span>
+        </div>
+        <div class="section">
+          <div class="path-card">
+            <div class="label">Game folder</div>
+            <div class="path">E:\Program Files\Steam\steamapps\common\Crimson Desert</div>
+            <div class="small-actions">
+              <button>Browse</button>
+              <button>Rescan</button>
+            </div>
+          </div>
+
+          <div class="theme-grid" aria-label="Theme selector">
+            <div class="swatch active" title="Gilded" style="--a:#f4c767;--b:#171812"></div>
+            <div class="swatch" title="Ember" style="--a:#ffc06b;--b:#35170c"></div>
+            <div class="swatch" title="Frost" style="--a:#bfefff;--b:#101821"></div>
+            <div class="swatch" title="Forest" style="--a:#ece18c;--b:#102013"></div>
+          </div>
+
+          <div class="drop-zone">
+            <strong>Drop JSON mods here</strong>
+            <span>Accepts .json files or folders. Validates format before adding.</span>
+          </div>
+
+          <div class="mod-list">
+            <div class="mod-card active">
+              <div class="mod-name">Resource Costs <span class="tag">JSON</span></div>
+              <div class="mod-meta">Stamina, spirit, horse stamina, regen presets</div>
+            </div>
+            <div class="mod-card active">
+              <div class="mod-name">Glider Costs <span class="tag">JSON</span></div>
+              <div class="mod-meta">Normal glide, fast glide, aerial rolls</div>
+            </div>
+            <div class="mod-card">
+              <div class="mod-name">Axiom Force <span class="tag">JSON</span></div>
+              <div class="mod-meta">Aerial pull and maneuver stamina</div>
+            </div>
+            <div class="mod-card">
+              <div class="mod-name">Health Regen <span class="tag">NEW</span></div>
+              <div class="mod-meta">HP recovery speed presets</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel workspace">
+        <div>
+          <div class="panel-header">
+            <h2 class="panel-title">Patch Board</h2>
+            <span class="counter">375 / 4125 enabled</span>
+          </div>
+          <div class="tabs">
+          <div class="tab active">Presets</div>
+            <div class="tab">ASI Mods</div>
+            <div class="tab">Conflicts</div>
+            <div class="tab">Files</div>
+            <div class="tab">Advanced</div>
+          </div>
+        </div>
+
+        <div class="patch-area">
+          <div class="preset-rail">
+            <div class="preset"><strong>0%</strong> true-zero resource costs, instant regen</div>
+            <div class="preset"><strong>1%</strong> ultra-low costs, 100x regen</div>
+            <div class="preset active"><strong>5%</strong> low costs, 20x regen</div>
+            <div class="preset"><strong>25%</strong> balanced low-cost mode</div>
+            <div class="preset"><strong>100%</strong> vanilla restore preset</div>
+          </div>
+
+          <div class="patch-list">
+            <div class="patch-row">
+              <div class="toggle on"></div>
+              <div>
+                <div class="patch-title">Skill_CrowSuperDash</div>
+                <div class="patch-sub">Focused Aerial Roll spirit cost: 20 -> 1</div>
+              </div>
+              <div class="patch-file">skill.pabgb</div>
+            </div>
+            <div class="patch-row">
+              <div class="toggle on"></div>
+              <div>
+                <div class="patch-title">BuffLevel_MpRegen</div>
+                <div class="patch-sub">Spirit regeneration level table: 20x</div>
+              </div>
+              <div class="patch-file">buffinfo.pabgb</div>
+            </div>
+            <div class="patch-row">
+              <div class="toggle on"></div>
+              <div>
+                <div class="patch-title">Skill_Rope_AirPull</div>
+                <div class="patch-sub">Axiom Force aerial pull stamina: 100 -> 25</div>
+              </div>
+              <div class="patch-file">skill.pabgb</div>
+            </div>
+            <div class="patch-row">
+              <div class="toggle"></div>
+              <div>
+                <div class="patch-title">Skill_HorseInstantAcc</div>
+                <div class="patch-sub">Skipped until vanilla bytes are restored</div>
+              </div>
+              <div class="patch-file">skill.pabgb</div>
+            </div>
+            <div class="patch-row">
+              <div class="toggle on"></div>
+              <div>
+                <div class="patch-title">BuffLevel_HPRegen</div>
+                <div class="patch-sub">Health regeneration level table: 5x</div>
+              </div>
+              <div class="patch-file">buffinfo.pabgb</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="asi-grid">
+          <div class="asi-card">
+            <strong>ASI Loader</strong>
+            <p>Detects Ultimate ASI Loader in bin64. Can install or remove the loader separately from mods.</p>
+            <div class="asi-actions">
+              <button class="safe">Installed</button>
+              <button>Change Loader</button>
+            </div>
+          </div>
+          <div class="asi-card">
+            <strong>Drop ASI Mods</strong>
+            <p>Accepts .asi, .dll, .ini, and mod folders. Keeps each runtime mod in a managed list with enable/disable.</p>
+            <div class="asi-actions">
+              <button>Add ASI</button>
+              <button>Open bin64</button>
+            </div>
+          </div>
+          <div class="asi-card">
+            <strong>Runtime Safety</strong>
+            <p>Shows which files load at startup, config files beside them, and warnings for duplicate loaders.</p>
+            <div class="asi-actions">
+              <button>Scan</button>
+              <button class="danger">Disable All</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel inspector">
+        <div class="panel-header">
+          <h2 class="panel-title">Inspector</h2>
+          <span class="counter">Dry run ready</span>
+        </div>
+        <div class="section">
+          <div class="check-grid">
+            <div class="check">
+              <span class="dot"></span>
+              <span>Original byte guards</span>
+              <span class="badge ok">0 skipped</span>
+            </div>
+            <div class="check">
+              <span class="dot"></span>
+              <span>Overlay target</span>
+              <span class="badge ok">0036</span>
+            </div>
+            <div class="check">
+              <span class="dot warn"></span>
+              <span>Conflicts</span>
+              <span class="badge warn">2 warnings</span>
+            </div>
+            <div class="check">
+              <span class="dot"></span>
+              <span>Backup</span>
+              <span class="badge ok">ready</span>
+            </div>
+          </div>
+        </div>
+        <pre class="log"><span class="good">OK</span> parsed 4 mod files
+<span class="good">OK</span> loaded gamedata/binary__/client/bin/skill.pabgb
+<span class="good">OK</span> loaded gamedata/binary__/client/bin/buffinfo.pabgb
+<span class="warn-text">WARN</span> horse stamina already patched in another overlay
+<span class="good">OK</span> 5841 patches validated
+<span class="good">OK</span> overlay preview is clean</pre>
+      </aside>
+    </main>
+
+    <footer class="bottombar">
+      <div class="summary">Preview: 4 active mods, 3 game files touched, overlay install only, originals remain untouched.</div>
+      <div class="actions">
+        <button>Dry Run</button>
+        <button class="primary">Apply Overlay</button>
+        <button>Uninstall Mods</button>
+        <button class="danger">Restore Backup</button>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
