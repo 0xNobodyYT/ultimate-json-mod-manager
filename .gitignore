@@ -33,3 +33,7 @@ desktop.ini
 
 # Allow LICENSE
 !LICENSE
+
+# Submission/private documents — never commit
+docs/NEXUS_REGISTRATION_EMAIL.md
+docs/*_PRIVATE*
