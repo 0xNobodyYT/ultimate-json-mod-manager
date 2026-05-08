@@ -4835,13 +4835,15 @@ namespace CdJsonModManager
     internal static class NexusClient
     {
         public const string ApiBase = "https://api.nexusmods.com/v1";
-        public static string UserAgent { get { return Program.AppDisplayName + "/" + Program.AppVersion; } }
+        public static string UserAgent { get { return Program.AppDisplayName + "/" + Program.AppVersion + " (+https://github.com/" + Program.UpdateRepo + ")"; } }
 
         private static System.Net.HttpWebRequest BuildGet(string apiKey, string path)
         {
             var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(ApiBase + path);
             req.Method = "GET";
             req.Headers["apikey"] = apiKey;
+            req.Headers["Application-Name"] = Program.AppDisplayName;
+            req.Headers["Application-Version"] = Program.AppVersion;
             req.UserAgent = UserAgent;
             req.Timeout = 25000;
             req.Accept = "application/json";
@@ -4992,6 +4994,8 @@ namespace CdJsonModManager
             {
                 var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
                 req.UserAgent = UserAgent;
+                req.Headers["Application-Name"] = Program.AppDisplayName;
+                req.Headers["Application-Version"] = Program.AppVersion;
                 req.Timeout = 60000;
                 using (var resp = (System.Net.HttpWebResponse)req.GetResponse())
                 {
