@@ -132,7 +132,7 @@ namespace CdJsonModManager
         private RoundedPanel inspectorPanel;
         private FlowLayoutPanel themeSwatchHost;
         private FlowLayoutPanel presetRailHost;
-        private TabControl tabs;
+        private DarkTabControl tabs;
         private string nexusApiKey;
         private string nexusUserName;
         private bool nexusIsPremium;
@@ -173,6 +173,15 @@ namespace CdJsonModManager
 
             currentTheme = ResolveSavedTheme();
             activePreset = ConfigString("activePreset");
+            // Restore per-patch disabled set
+            try
+            {
+                if (config.ContainsKey("disabledPatches") && config["disabledPatches"] is object[] arr)
+                {
+                    foreach (var s in arr) if (s != null) disabledPatches.Add(Convert.ToString(s));
+                }
+            }
+            catch { }
             CrashReporter.StateProvider = () =>
             {
                 var s = new Dictionary<string, object>();
@@ -208,6 +217,13 @@ namespace CdJsonModManager
                 case "ember": return Theme.Ember();
                 case "frost": return Theme.Frost();
                 case "forest": return Theme.Forest();
+                case "custom":
+                    var hex = ConfigString("customAccent");
+                    if (!string.IsNullOrEmpty(hex))
+                    {
+                        try { return Theme.Custom(ColorTranslator.FromHtml(hex)); } catch { }
+                    }
+                    return Theme.Gilded();
                 default: return Theme.Gilded();
             }
         }
@@ -553,8 +569,8 @@ namespace CdJsonModManager
 
             var backup = NewGradientButton("Create Backup", GradientButton.Style.Safe, 140, CreateFullBackup);
             tipsHost.SetToolTip(backup, "Save the current game state as the revert point. Backs up meta\\0.papgt, 0008\\0.pamt, and the byte lengths of each .paz file. Run this after a Crimson Desert update (or after Steam → Verify Integrity of Game Files) so 'Restore Backup' has fresh backups to restore from.");
-            var dryRun = NewGradientButton("Verify Bytes", GradientButton.Style.Default, 130, RunValidation);
-            tipsHost.SetToolTip(dryRun, "Verify selected mods against the current game files without changing anything. Confirms each patch's 'original' bytes match what's actually in your installed game.");
+            var dryRun = NewGradientButton("Check Match", GradientButton.Style.Default, 140, RunValidation);
+            tipsHost.SetToolTip(dryRun, "Check that selected mods match the current game version (no changes applied). Confirms each patch's 'original' bytes match what's actually in your installed Crimson Desert. Useful after a Steam game update.");
             var apply = NewGradientButton("Apply Mods", GradientButton.Style.Primary, 150, ApplyOverlayStub);
             tipsHost.SetToolTip(apply, "Apply selected mods. Modded bytes are appended to the .paz archive (original data never overwritten) and the .pamt index is patched to point at them. Click 'Restore Backup' to fully revert.");
             var uninstall = NewGradientButton("Restore Backup", GradientButton.Style.Danger, 150, DisableAllMods);
@@ -683,9 +699,9 @@ namespace CdJsonModManager
                 BackColor = Color.Transparent,
                 Padding = new Padding(0, 6, 0, 0)
             };
-            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
-            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32));
-            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
+            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34f));
             var browseBtn = NewGradientButton("Browse", GradientButton.Style.Default, 0, BrowseGameFolder);
             tipsHost.SetToolTip(browseBtn, "Pick the Crimson Desert folder (the one that contains bin64 and 0008).");
             var detectBtn = NewGradientButton("Detect", GradientButton.Style.Default, 0, DetectGameFolderClicked);
@@ -718,7 +734,7 @@ namespace CdJsonModManager
             {
                 Dock = DockStyle.Top,
                 FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false,
+                WrapContents = true, // wrap to a second row on narrow panels so all 5 swatches stay reachable
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 BackColor = Color.Transparent,
@@ -729,6 +745,7 @@ namespace CdJsonModManager
             themeSwatchHost.Controls.Add(MakeSwatch(Theme.Ember()));
             themeSwatchHost.Controls.Add(MakeSwatch(Theme.Frost()));
             themeSwatchHost.Controls.Add(MakeSwatch(Theme.Forest()));
+            themeSwatchHost.Controls.Add(MakeCustomSwatch());
             return themeSwatchHost;
         }
 
@@ -736,14 +753,68 @@ namespace CdJsonModManager
         {
             var sw = new ThemeSwatch(theme)
             {
-                Width = 66,
-                Height = 48,
-                Margin = new Padding(0, 0, 8, 0),
+                Width = 50,
+                Height = 44,
+                Margin = new Padding(0, 0, 6, 6),
                 Cursor = Cursors.Hand
             };
             var tooltip = new ToolTip();
             tooltip.SetToolTip(sw, theme.Name);
             sw.Click += (sender, args) => ApplyTheme(theme);
+            return sw;
+        }
+
+        // Custom swatch: shows the saved custom colour (or a faint placeholder pattern if none yet).
+        // Click → opens ColorDialog; selection saves to config and applies immediately.
+        private ThemeSwatch MakeCustomSwatch()
+        {
+            var saved = ConfigString("customAccent");
+            Theme baseTheme = Theme.Custom(Color.FromArgb(216, 166, 64)); // placeholder so the swatch renders
+            if (!string.IsNullOrEmpty(saved))
+            {
+                try { baseTheme = Theme.Custom(ColorTranslator.FromHtml(saved)); } catch { }
+            }
+            else
+            {
+                // Empty placeholder: dim, no saturation. Distinguishable from the built-ins.
+                baseTheme.Accent = Color.FromArgb(70, 70, 70);
+                baseTheme.Accent2 = Color.FromArgb(120, 120, 120);
+                baseTheme.Name = "Custom";
+            }
+            var sw = new ThemeSwatch(baseTheme)
+            {
+                Width = 50,
+                Height = 44,
+                Margin = new Padding(0, 0, 6, 6),
+                Cursor = Cursors.Hand
+            };
+            tipsHost.SetToolTip(sw, "Custom theme — click to pick your own accent colour. Saved across launches.");
+            sw.Click += (sender, args) =>
+            {
+                using (var cd = new ColorDialog { FullOpen = true, AnyColor = true })
+                {
+                    var current = ConfigString("customAccent");
+                    if (!string.IsNullOrEmpty(current))
+                    {
+                        try { cd.Color = ColorTranslator.FromHtml(current); } catch { }
+                    }
+                    if (cd.ShowDialog(this) == DialogResult.OK)
+                    {
+                        var hex = "#" + cd.Color.R.ToString("X2") + cd.Color.G.ToString("X2") + cd.Color.B.ToString("X2");
+                        config["customAccent"] = hex;
+                        config["theme"] = "Custom";
+                        SaveConfig(config);
+                        var newTheme = Theme.Custom(cd.Color);
+                        ApplyTheme(newTheme);
+                        // Re-render the swatch with the picked colour by replacing it in place.
+                        var idx = themeSwatchHost.Controls.GetChildIndex(sw);
+                        themeSwatchHost.Controls.Remove(sw);
+                        var refreshed = MakeCustomSwatch();
+                        themeSwatchHost.Controls.Add(refreshed);
+                        themeSwatchHost.Controls.SetChildIndex(refreshed, idx);
+                    }
+                }
+            };
             return sw;
         }
 
@@ -829,16 +900,17 @@ namespace CdJsonModManager
 
             layout.Controls.Add(BuildPanelHeader("PATCH BOARD", "0 enabled", out workspaceCounter), 0, 0);
 
-            tabs = new TabControl
+            tabs = new DarkTabControl
             {
                 Dock = DockStyle.Fill,
                 Appearance = TabAppearance.FlatButtons,
                 SizeMode = TabSizeMode.Normal,
                 ItemSize = new Size(120, 30),
-                DrawMode = TabDrawMode.OwnerDrawFixed,
                 Padding = new Point(14, 6),
                 Font = new Font("Consolas", 9, FontStyle.Bold),
-                Margin = new Padding(12, 8, 12, 12)
+                Margin = new Padding(12, 8, 12, 12),
+                BackColor = Color.FromArgb(14, 15, 11),
+                StripColor = Color.FromArgb(14, 15, 11)
             };
             tabs.DrawItem += DrawTabItem;
 
@@ -903,11 +975,51 @@ namespace CdJsonModManager
                 CornerRadius = 16,
                 BorderWidth = 1,
                 Dock = DockStyle.Fill,
-                Padding = new Padding(0, 0, 0, 0)
+                Padding = new Padding(8, 8, 8, 8)
             };
             listHost.GradientTopOverride = Color.FromArgb(180, 0, 0, 0);
             listHost.GradientBottomOverride = Color.FromArgb(220, 0, 0, 0);
             listHost.BorderColor = Color.FromArgb(36, 255, 255, 255);
+
+            var listLayoutInner = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = Color.Transparent
+            };
+            listLayoutInner.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+            listLayoutInner.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            listHost.Controls.Add(listLayoutInner);
+
+            patchSearchBox = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Consolas", 9),
+                BackColor = Color.FromArgb(20, 21, 14),
+                ForeColor = Color.FromArgb(244, 234, 209),
+                Margin = new Padding(2, 2, 2, 6)
+            };
+            // Placeholder via a Label overlay (TextBox lacks native placeholder support in .NET FW).
+            var ph = new Label
+            {
+                Text = "  Search patches...",
+                Dock = DockStyle.Fill,
+                Font = patchSearchBox.Font,
+                ForeColor = Color.FromArgb(112, 104, 79),
+                BackColor = patchSearchBox.BackColor,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            ph.Click += (s, e) => patchSearchBox.Focus();
+            patchSearchBox.GotFocus += (s, e) => ph.Visible = false;
+            patchSearchBox.LostFocus += (s, e) => { if (string.IsNullOrEmpty(patchSearchBox.Text)) ph.Visible = true; };
+            patchSearchBox.TextChanged += (s, e) => RefreshPatchList();
+            var searchHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            searchHost.Controls.Add(patchSearchBox);
+            searchHost.Controls.Add(ph);
+            ph.BringToFront();
+            listLayoutInner.Controls.Add(searchHost, 0, 0);
 
             patchList = new ListView
             {
@@ -916,6 +1028,7 @@ namespace CdJsonModManager
                 FullRowSelect = true,
                 GridLines = false,
                 HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                CheckBoxes = true,
                 Font = new Font("Consolas", 9),
                 BorderStyle = BorderStyle.None,
                 BackColor = Color.FromArgb(12, 13, 10),
@@ -924,8 +1037,34 @@ namespace CdJsonModManager
             patchList.Columns.Add("Patch", 200);
             patchList.Columns.Add("Target", 200);
             patchList.SizeChanged += (s, e) => FitListColumns(patchList, new[] { 0.50f, 0.50f });
-            listHost.Controls.Add(patchList);
+            patchList.ItemChecked += PatchList_ItemChecked;
+            listLayoutInner.Controls.Add(patchList, 0, 1);
             grid.Controls.Add(listHost, 1, 0);
+        }
+
+        // Tracks patches the user disabled per-mod. Key: mod filename + "|" + change index.
+        private readonly HashSet<string> disabledPatches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private bool patchListSyncing = false;
+        private TextBox patchSearchBox;
+
+        private static string PatchKey(JsonMod mod, int changeIndex)
+        {
+            return Path.GetFileName(mod.Path) + "|" + changeIndex;
+        }
+
+        private void PatchList_ItemChecked(object sender, ItemCheckedEventArgs e)
+        {
+            if (patchListSyncing) return;
+            var item = e.Item;
+            if (item == null || item.Tag == null) return;
+            var key = item.Tag as string;
+            if (string.IsNullOrEmpty(key)) return;
+            if (item.Checked) disabledPatches.Remove(key);
+            else disabledPatches.Add(key);
+            // Persist immediately to config.
+            config["disabledPatches"] = disabledPatches.ToArray();
+            SaveConfig(config);
+            UpdateBottomSummary();
         }
 
         private void FitListColumns(ListView list, float[] weights)
@@ -967,7 +1106,7 @@ namespace CdJsonModManager
             cardsRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             cardsRow.Controls.Add(BuildAsiCard("ASI Loader",
-                "Detects Ultimate ASI Loader / CDUMM in bin64. Install or remove the loader separately from mods.",
+                "Detects Ultimate ASI Loader in bin64. Install or remove the loader separately from mods.",
                 ("Detect", GradientButton.Style.Safe, (Action)RefreshAsi),
                 ("Open bin64", GradientButton.Style.Default, (Action)(() => { if (!string.IsNullOrEmpty(gamePath)) OpenFolder(Path.Combine(gamePath, "bin64")); }))
             ), 0, 0);
@@ -1146,8 +1285,8 @@ namespace CdJsonModManager
                 RowCount = 4,
                 BackColor = Color.Transparent
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 110)); // status card
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));  // actions row
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 124)); // status card (taller to clear the pill)
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // actions row — grows when buttons wrap
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));  // feed header
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // feed
             tab.Controls.Add(layout);
@@ -1188,7 +1327,7 @@ namespace CdJsonModManager
                 TextAlign = ContentAlignment.MiddleLeft
             }, 0, 0);
 
-            nexusStatusPill = new Pill { Text = "Not connected", DotColor = Color.FromArgb(216, 92, 76), Anchor = AnchorStyles.Right, Margin = new Padding(0, 4, 0, 0) };
+            nexusStatusPill = new Pill { Text = "Not connected", DotColor = Color.FromArgb(216, 92, 76), Anchor = AnchorStyles.Right, Margin = new Padding(0, 4, 0, 8) };
             statusInner.Controls.Add(nexusStatusPill, 1, 0);
 
             nexusUserLabel = new Label
@@ -1206,12 +1345,14 @@ namespace CdJsonModManager
             layout.Controls.Add(statusCard, 0, 0);
 
             // Actions row — SSO is the primary sign-in path. No user-facing key paste.
+            // WrapContents=true so all buttons stay reachable on narrow widths instead of falling off the right edge.
             var actions = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.Transparent,
                 FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false,
+                WrapContents = true,
+                AutoScroll = true,
                 Padding = new Padding(0, 8, 0, 8)
             };
 
@@ -1608,7 +1749,9 @@ namespace CdJsonModManager
                 pendingNxmUrl = null;
                 BeginInvoke(new Action(() => HandleNxmUrl(url)));
             }
-            CheckForUpdatesBackground();
+            // No automatic update check at startup — Nexus rep (May 2026) confirmed they want UJMM
+            // distributed as a regular Nexus mod page so users get standard Nexus update notifications
+            // rather than an in-app auto-checker. The build pill remains clickable for explicit checks.
             StartNexusUpdateTimer();
         }
 
@@ -1896,25 +2039,30 @@ namespace CdJsonModManager
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
+            // Paint the strip background dark first — the default TabControl background is system grey and bleeds through under FlatButtons.
+            using (var stripBrush = new SolidBrush(Color.FromArgb(14, 15, 11)))
+                g.FillRectangle(stripBrush, rect);
+
             var pad = new Rectangle(rect.X + 2, rect.Y + 2, rect.Width - 4, rect.Height - 2);
             using (var path = RoundedPanel.RoundedRect(pad, 10))
             {
                 if (isActive)
                 {
-                    using (var brush = new LinearGradientBrush(pad, currentTheme.Accent2, currentTheme.Accent, 90f))
+                    // Match panel-header style: dark fill with a thin gold border + theme accent text.
+                    using (var brush = new LinearGradientBrush(pad, Color.FromArgb(36, 38, 28), Color.FromArgb(22, 24, 18), 90f))
                         g.FillPath(brush, path);
-                    using (var pen = new Pen(Color.FromArgb(180, currentTheme.Accent), 1f))
+                    using (var pen = new Pen(Color.FromArgb(140, currentTheme.Accent), 1f))
                         g.DrawPath(pen, path);
                 }
                 else
                 {
-                    using (var brush = new SolidBrush(Color.FromArgb(20, 255, 255, 255)))
+                    using (var brush = new SolidBrush(Color.FromArgb(20, 21, 16)))
                         g.FillPath(brush, path);
-                    using (var pen = new Pen(Color.FromArgb(36, 255, 255, 255), 1f))
+                    using (var pen = new Pen(Color.FromArgb(36, 32, 22), 1f))
                         g.DrawPath(pen, path);
                 }
             }
-            var fg = isActive ? Color.FromArgb(18, 14, 7) : Color.FromArgb(169, 157, 124);
+            var fg = isActive ? currentTheme.Accent2 : Color.FromArgb(169, 157, 124);
             TextRenderer.DrawText(g, page.Text, tc.Font, pad, fg, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
@@ -1935,7 +2083,7 @@ namespace CdJsonModManager
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             panel.Controls.Add(layout);
 
-            layout.Controls.Add(BuildPanelHeader("INSPECTOR", "Verify ready", out inspectorCounter), 0, 0);
+            layout.Controls.Add(BuildPanelHeader("INSPECTOR", "Match ready", out inspectorCounter), 0, 0);
 
             var checkHost = new TableLayoutPanel
             {
@@ -2035,13 +2183,13 @@ namespace CdJsonModManager
             counter = new Label
             {
                 Text = counterText,
-                AutoSize = true,
+                AutoSize = false,
+                Width = 200,
+                Dock = DockStyle.Fill,
                 Font = new Font("Consolas", 9),
                 ForeColor = Color.FromArgb(112, 104, 79),
                 BackColor = Color.Transparent,
-                Anchor = AnchorStyles.Right,
-                TextAlign = ContentAlignment.MiddleRight,
-                Padding = new Padding(0, 14, 0, 0)
+                TextAlign = ContentAlignment.MiddleRight
             };
             grid.Controls.Add(counter, 1, 0);
             return header;
@@ -2195,9 +2343,9 @@ namespace CdJsonModManager
                     CornerRadius = 16,
                     BorderWidth = 1,
                     Width = Math.Max(260, modCardsHost.ClientSize.Width - 4),
-                    Height = 78,
-                    Margin = new Padding(0, 0, 0, 10),
-                    Padding = new Padding(14, 11, 14, 11),
+                    Height = 96,
+                    Margin = new Padding(0, 0, 0, 8),
+                    Padding = new Padding(12, 9, 12, 9),
                     Cursor = Cursors.Hand
                 };
                 card.GradientTopOverride = Color.FromArgb(56, 0, 0, 0);
@@ -2240,7 +2388,7 @@ namespace CdJsonModManager
                 {
                     Text = mod.Name,
                     Dock = DockStyle.Fill,
-                    Font = new Font("Trebuchet MS", 11f, FontStyle.Bold),
+                    Font = new Font("Trebuchet MS", 9.5f, FontStyle.Bold),
                     BackColor = Color.Transparent,
                     AutoEllipsis = true,
                     TextAlign = ContentAlignment.MiddleLeft,
@@ -2281,11 +2429,12 @@ namespace CdJsonModManager
                     Text = !string.IsNullOrWhiteSpace(mod.Description) ? mod.Description :
                            (string.IsNullOrWhiteSpace(mod.Version + mod.Author) ? "JSON byte-patch mod" : (mod.Version + " by " + mod.Author).Trim()),
                     Dock = DockStyle.Fill,
-                    Font = new Font("Consolas", 8.5f),
+                    Font = new Font("Consolas", 7.5f),
                     ForeColor = Color.FromArgb(169, 157, 124),
                     BackColor = Color.Transparent,
                     AutoEllipsis = true,
-                    TextAlign = ContentAlignment.MiddleLeft,
+                    AutoSize = false,
+                    TextAlign = ContentAlignment.TopLeft,
                     Cursor = Cursors.Hand
                 };
                 stack.Controls.Add(metaLabel, 0, 1);
@@ -2426,11 +2575,10 @@ namespace CdJsonModManager
 
         private void StartNexusUpdateTimer()
         {
+            // Nexus rate-limit guidance (per their May 2026 reply): poll mod updates AT MOST once per session.
+            // We do a single startup check 8s after the form is up — never on a recurring timer — and
+            // refreshing the Nexus tab triggers an explicit on-demand check via the "Refresh Feed" button.
             if (nexusUpdateTimer != null) return;
-            nexusUpdateTimer = new System.Windows.Forms.Timer { Interval = 30 * 60 * 1000 };
-            nexusUpdateTimer.Tick += (s, e) => { if (!string.IsNullOrEmpty(nexusApiKey)) CheckUpdatesNow(); };
-            nexusUpdateTimer.Start();
-            // Initial check 8 seconds after the form is up so it doesn't block startup
             var kickoff = new System.Windows.Forms.Timer { Interval = 8000 };
             kickoff.Tick += (s, e) =>
             {
@@ -2782,12 +2930,12 @@ namespace CdJsonModManager
         {
             if (patchList == null) return;
 
+            string filter = patchSearchBox != null ? (patchSearchBox.Text ?? "").Trim().ToLowerInvariant() : "";
             // Show all active (checked) mods' patches first — these will actually apply.
-            // Then, if the focused mod isn't already active, show its patches as a preview
-            // (dimmed + "preview" prefix) so the user can inspect what a mod does without
-            // having to enable it first.
+            // Then, if the focused mod isn't already active, show its patches as a preview.
             var pending = new List<ListViewItem>(256);
             int activeCount = 0;
+            int activeAppliedCount = 0;
             var focused = FocusedMod();
             bool focusedAlreadyActive = false;
             foreach (var mod in mods)
@@ -2795,14 +2943,29 @@ namespace CdJsonModManager
                 if (!activeBoxes.ContainsKey(mod.Path) || !activeBoxes[mod.Path].Checked) continue;
                 if (focused != null && string.Equals(mod.Path, focused.Path, StringComparison.OrdinalIgnoreCase)) focusedAlreadyActive = true;
                 var group = GroupFor(mod);
+                int idx = 0;
                 foreach (var change in mod.ChangesForGroup(group))
                 {
                     var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
-                    var item = new ListViewItem(label);
                     var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
-                    item.SubItems.Add(fileName + "  +0x" + change.Offset.ToString("X"));
-                    pending.Add(item);
+                    var target = fileName + "  +0x" + change.Offset.ToString("X");
                     activeCount++;
+                    var key = PatchKey(mod, idx);
+                    bool patchEnabled = !disabledPatches.Contains(key);
+                    if (patchEnabled) activeAppliedCount++;
+                    idx++;
+                    if (filter.Length > 0
+                        && !label.ToLowerInvariant().Contains(filter)
+                        && !target.ToLowerInvariant().Contains(filter)
+                        && !mod.Name.ToLowerInvariant().Contains(filter))
+                    {
+                        continue;
+                    }
+                    var item = new ListViewItem(label);
+                    item.SubItems.Add(target);
+                    item.Tag = key;
+                    item.Checked = patchEnabled;
+                    pending.Add(item);
                 }
             }
 
@@ -2810,18 +2973,33 @@ namespace CdJsonModManager
             if (focused != null && !focusedAlreadyActive)
             {
                 var group = GroupFor(focused);
+                int idx = 0;
                 foreach (var change in focused.ChangesForGroup(group))
                 {
                     var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
-                    var item = new ListViewItem("preview · " + label);
                     var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
-                    item.SubItems.Add(fileName + "  +0x" + change.Offset.ToString("X"));
+                    var target = fileName + "  +0x" + change.Offset.ToString("X");
+                    var key = PatchKey(focused, idx);
+                    bool patchEnabled = !disabledPatches.Contains(key);
+                    idx++;
+                    if (filter.Length > 0
+                        && !label.ToLowerInvariant().Contains(filter)
+                        && !target.ToLowerInvariant().Contains(filter)
+                        && !focused.Name.ToLowerInvariant().Contains(filter))
+                    {
+                        continue;
+                    }
+                    var item = new ListViewItem("preview · " + label);
+                    item.SubItems.Add(target);
                     item.ForeColor = Color.FromArgb(150, 138, 100);
+                    item.Tag = key;
+                    item.Checked = patchEnabled;
                     pending.Add(item);
                     previewCount++;
                 }
             }
 
+            patchListSyncing = true;
             patchList.BeginUpdate();
             try
             {
@@ -2831,14 +3009,16 @@ namespace CdJsonModManager
             finally
             {
                 patchList.EndUpdate();
+                patchListSyncing = false;
             }
 
             if (workspaceCounter != null)
             {
                 int total = 0;
                 foreach (var mod in mods) total += mod.Changes.Count;
-                var lead = activeCount + " / " + total + " will apply";
+                var lead = activeAppliedCount + " / " + total + " will apply";
                 if (previewCount > 0) lead += " · " + previewCount + " preview";
+                if (filter.Length > 0) lead += " · filtered: \"" + filter + "\"";
                 workspaceCounter.Text = lead;
             }
         }
@@ -2879,12 +3059,41 @@ namespace CdJsonModManager
 
             try
             {
-                if (File.Exists(mod.Path))
-                {
-                    File.Delete(mod.Path);
-                }
+                if (File.Exists(mod.Path)) File.Delete(mod.Path);
                 Log("Deleted JSON mod: " + mod.Name + ".");
-                LoadMods();
+
+                // Surgical UI update — drop just this card instead of rebuilding the whole list (which flickers + scroll-resets).
+                if (modCards.ContainsKey(mod.Path))
+                {
+                    var card = modCards[mod.Path];
+                    if (modCardsHost != null) modCardsHost.Controls.Remove(card);
+                    card.Dispose();
+                    modCards.Remove(mod.Path);
+                }
+                modCardPills.Remove(mod.Path);
+                activeBoxes.Remove(mod.Path);
+                groupBy.Remove(mod.Path);
+                nexusLinks.Remove(mod.Path);
+                mods.RemoveAll(m => string.Equals(m.Path, mod.Path, StringComparison.OrdinalIgnoreCase));
+                if (string.Equals(focusedModPath, mod.Path, StringComparison.OrdinalIgnoreCase)) focusedModPath = "";
+
+                // Drop any per-patch toggles that belonged to this mod from the persisted set.
+                var deadPrefix = Path.GetFileName(mod.Path) + "|";
+                disabledPatches.RemoveWhere(k => k.StartsWith(deadPrefix, StringComparison.OrdinalIgnoreCase));
+                config["disabledPatches"] = disabledPatches.ToArray();
+                // Drop from active mods list in config too.
+                var activeNames = (config.ContainsKey("activeMods") && config["activeMods"] is object[] aArr ? aArr : new object[0])
+                    .Select(o => Convert.ToString(o))
+                    .Where(s => !string.Equals(s, Path.GetFileName(mod.Path), StringComparison.OrdinalIgnoreCase))
+                    .Cast<object>()
+                    .ToArray();
+                config["activeMods"] = activeNames;
+                SaveConfig(config);
+
+                RebuildPresetRail();
+                RefreshPatchList();
+                UpdateStatusPills();
+                UpdateBottomSummary();
             }
             catch (Exception ex)
             {
@@ -3162,12 +3371,25 @@ namespace CdJsonModManager
                 loaderLabel.Text = "ASI loader: " + (loaders.Count == 0 ? "not detected" : string.Join(", ", loaders));
             }
 
-            var files = Directory.GetFiles(bin64)
+            // Show only ASI mods (and their per-mod .ini sidecars) — not the hundreds of game-shipped DLLs.
+            var asiFiles = Directory.GetFiles(bin64)
                 .Where(path => path.EndsWith(".asi", StringComparison.OrdinalIgnoreCase)
-                    || path.EndsWith(".asi.disabled", StringComparison.OrdinalIgnoreCase)
-                    || path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-                    || path.EndsWith(".ini", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(Path.GetFileName);
+                    || path.EndsWith(".asi.disabled", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(Path.GetFileName)
+                .ToList();
+            // Pair each ASI with any .ini that has the same stem (e.g. MyMod.asi + MyMod.ini)
+            // .NET FW 4 String.Replace doesn't take StringComparison; the inner GetFileNameWithoutExtension already strips ".disabled" off, so a plain replace works for all-lowercase stems.
+            var asiStems = new HashSet<string>(asiFiles.Select(p =>
+            {
+                var stem = Path.GetFileNameWithoutExtension(p);
+                if (stem.EndsWith(".asi", StringComparison.OrdinalIgnoreCase)) stem = stem.Substring(0, stem.Length - 4);
+                return stem;
+            }), StringComparer.OrdinalIgnoreCase);
+            var iniSidecars = Directory.GetFiles(bin64, "*.ini")
+                .Where(p => asiStems.Contains(Path.GetFileNameWithoutExtension(p)))
+                .OrderBy(Path.GetFileName)
+                .ToList();
+            var files = asiFiles.Concat(iniSidecars).ToList();
 
             foreach (var file in files)
             {
@@ -3175,11 +3397,18 @@ namespace CdJsonModManager
                 var lower = name.ToLowerInvariant();
                 var status = lower.EndsWith(".asi.disabled") ? "disabled" :
                     lower.EndsWith(".asi") ? "enabled" :
-                    loaders.Contains(name, StringComparer.OrdinalIgnoreCase) ? "loader" : "support/config";
+                    lower.EndsWith(".ini") ? "config" : "unknown";
                 var item = new ListViewItem(name) { Tag = file };
                 item.SubItems.Add(status);
                 item.SubItems.Add(new FileInfo(file).Length.ToString());
                 asiList.Items.Add(item);
+            }
+            if (files.Count == 0)
+            {
+                var empty = new ListViewItem("(no ASI mods installed)") { ForeColor = Color.FromArgb(120, 110, 90) };
+                empty.SubItems.Add("");
+                empty.SubItems.Add("");
+                asiList.Items.Add(empty);
             }
         }
 
@@ -3264,14 +3493,14 @@ namespace CdJsonModManager
 
             if (issues.Count == 0)
             {
-                Log("Verify passed.");
-                MessageBox.Show("Selected patch guards match the extracted game data.", "Verify passed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Log("Match check passed.");
+                MessageBox.Show("Mods match this game version — every patch's original bytes match what's installed.", "Match check passed", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
                 foreach (var issue in issues.Take(80)) Log(issue);
                 if (issues.Count > 80) Log("... plus " + (issues.Count - 80) + " more issue(s).");
-                MessageBox.Show("Some original bytes did not match. Check the inspector log.", "Verify mismatch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Some patches don't match the installed game (likely a Crimson Desert update). Check the inspector log for details — those mods may need to be updated for this game version.", "Match failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -3339,17 +3568,24 @@ namespace CdJsonModManager
             }
 
             // Group changes by gameFile across all active mods (using each mod's selected preset).
+            // Skip patches the user has unchecked in the patch list (disabledPatches).
             var byGameFile = new Dictionary<string, List<PatchChange>>(StringComparer.OrdinalIgnoreCase);
+            int skippedDisabled = 0;
             foreach (var mod in selected)
             {
                 var group = GroupFor(mod);
+                int idx = 0;
                 foreach (var c in mod.ChangesForGroup(group))
                 {
+                    var key = PatchKey(mod, idx);
+                    idx++;
                     if (string.IsNullOrEmpty(c.GameFile)) continue;
+                    if (disabledPatches.Contains(key)) { skippedDisabled++; continue; }
                     if (!byGameFile.ContainsKey(c.GameFile)) byGameFile[c.GameFile] = new List<PatchChange>();
                     byGameFile[c.GameFile].Add(c);
                 }
             }
+            if (skippedDisabled > 0) Log("Skipped " + skippedDisabled + " patch(es) the user disabled in the Patch Board.");
             if (byGameFile.Count == 0)
             {
                 MessageBox.Show("Selected mods have no patches with a target game_file.", "Nothing to apply", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -3404,6 +3640,16 @@ namespace CdJsonModManager
             // Backups (idempotent — if already present, do not overwrite — they reflect pre-FIRST-apply state)
             var backupRoot = PazBackupsRoot();
             Directory.CreateDirectory(backupRoot);
+            // Back up papgt too — Apply now updates it (PamtCrc + papgt HeaderCrc) so we need a revert source.
+            var papgtLive = Path.Combine(gamePath, "meta", "0.papgt");
+            var papgtBackup = Path.Combine(backupRoot, "..", "0.papgt.original"); // _jmm_backups/0.papgt.original
+            papgtBackup = Path.GetFullPath(papgtBackup);
+            if (File.Exists(papgtLive) && !File.Exists(papgtBackup))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(papgtBackup));
+                File.Copy(papgtLive, papgtBackup);
+                Log("Backed up papgt to " + papgtBackup);
+            }
             var pamtBackup = Path.Combine(backupRoot, "0.pamt.original");
             if (!File.Exists(pamtBackup))
             {
@@ -3503,30 +3749,46 @@ namespace CdJsonModManager
                                 continue;
                             }
 
-                            // Recompress with LZ4 all-literals
-                            var newCompressed = ArchiveExtractor.Lz4BlockCompress(decompressed);
+                            // Write the patched data UNCOMPRESSED:
+                            //   compSize == origSize signals "no decompression needed"
+                            //   compType bits (16..19) cleared to 0
+                            // This avoids any LZ4 encoder ambiguity — the engine reads raw bytes.
+                            var rawBytes = decompressed;
 
-                            // Append to paz, capture new offset
+                            // Pad paz file to a 16-byte boundary BEFORE this entry (the engine bounds-checks 16-byte alignment).
+                            // The engine validates that every entry's pazOffset is 16-aligned; misaligned offsets cause launch failure.
                             paz.Seek(0, SeekOrigin.End);
-                            long newOffset = paz.Position;
-                            paz.Write(newCompressed, 0, newCompressed.Length);
+                            long endPos = paz.Position;
+                            int prePad = (int)((16 - (endPos % 16)) % 16);
+                            if (prePad > 0) paz.Write(new byte[prePad], 0, prePad);
+                            long newOffset = paz.Position; // 16-aligned
+                            paz.Write(rawBytes, 0, rawBytes.Length);
 
                             w.NewPazOffset = (uint)newOffset;
-                            w.NewCompSize = (uint)newCompressed.Length;
-                            w.NewOrigSize = (uint)decompressed.Length;
-                            // Preserve pazIndex (low 8 bits) and other flag bits, force compression type to 2 (LZ4) at bits 16..19
-                            w.NewFlags = (w.Entry.Flags & 0xFFF0FFFFu) | 0x00020000u;
+                            w.NewCompSize = (uint)rawBytes.Length;
+                            w.NewOrigSize = (uint)rawBytes.Length;
+                            // Preserve pazIndex (low 8 bits) and any flag bits outside 16..19; clear the comp-type nibble.
+                            w.NewFlags = (w.Entry.Flags & 0xFFF0FFFFu);
                             w.Succeeded = true;
 
                             totalApplied += applied;
                             totalMismatch += mismatch;
-                            Log("Applied " + applied + " to " + w.Entry.Path + " (compSize " + w.Entry.CompSize + " -> " + w.NewCompSize + ")");
+                            Log("Applied " + applied + " to " + w.Entry.Path + " (compSize " + w.Entry.CompSize + " -> " + w.NewCompSize + ", uncompressed, +" + prePad + "B align pad)");
                         }
                         catch (Exception ex)
                         {
                             Log("Apply error for " + w.Entry.Path + ": " + ex.Message);
                             fileSkipped++;
                         }
+                    }
+                    // Pad paz file end to 16-byte alignment so the recorded size matches engine expectations.
+                    paz.Seek(0, SeekOrigin.End);
+                    long finalEnd = paz.Position;
+                    int finalPad = (int)((16 - (finalEnd % 16)) % 16);
+                    if (finalPad > 0)
+                    {
+                        paz.Write(new byte[finalPad], 0, finalPad);
+                        Log("Padded " + Path.GetFileName(pazFile) + " end with " + finalPad + " bytes for 16-byte alignment.");
                     }
                     paz.Flush();
                 }
@@ -3587,16 +3849,99 @@ namespace CdJsonModManager
                 pazSizeUpdates++;
             }
             Log("Updated PAMT header paz sizes: " + pazSizeUpdates);
+
+            // ============================================================
+            // Compute and write Pearl Abyss CRCs (the part we missed for hours):
+            //   • per-paz Crc — PaChecksum of the .paz file content, at PAMT[12+pazIdx*12+4]
+            //   • PAMT HeaderCrc — PaChecksum of pamt[12..end], at PAMT[0..3]
+            //   • papgt's PamtCrc field for "0008" — copy of the new HeaderCrc
+            //   • papgt's own HeaderCrc — PaChecksum of papgt[12..end], at papgt[4..7]
+            // Without these, the engine refuses to launch.
+            // ============================================================
+            int crcUpdates = 0;
+            foreach (var pazFile in workItems.Where(w => w.Succeeded).Select(w => w.Entry.PazFile).Distinct())
+            {
+                var name = Path.GetFileName(pazFile);
+                int dot = name.IndexOf('.');
+                if (dot <= 0) continue;
+                if (!int.TryParse(name.Substring(0, dot), out int pazNum)) continue;
+                int pamtBaseNum;
+                if (!int.TryParse(Path.GetFileNameWithoutExtension(pamtPath), out pamtBaseNum)) pamtBaseNum = 0;
+                int pazIdx = pazNum - pamtBaseNum;
+                int crcOffset = 12 + pazIdx * 12 + 4;
+                if (crcOffset + 4 > pamtNew.Length) continue;
+                Log("Computing PaChecksum of " + name + " (" + new FileInfo(pazFile).Length + " bytes)...");
+                Application.DoEvents();
+                uint pazCrc = ArchiveExtractor.PaChecksumFile(pazFile);
+                ArchiveExtractor.WriteU32LE(pamtNew, crcOffset, pazCrc);
+                Log("PAMT row[" + pazIdx + "] Crc -> 0x" + pazCrc.ToString("X8"));
+                crcUpdates++;
+            }
+            // PAMT HeaderCrc = PaChecksum(pamt[12..end])
+            uint pamtHeaderCrc = ArchiveExtractor.PaChecksum(pamtNew, 12, pamtNew.Length - 12);
+            ArchiveExtractor.WriteU32LE(pamtNew, 0, pamtHeaderCrc);
+            Log("PAMT HeaderCrc -> 0x" + pamtHeaderCrc.ToString("X8"));
+
             try
             {
                 File.WriteAllBytes(pamtPath, pamtNew);
-                Log("Wrote modified PAMT (" + pamtChanges + " entries redirected).");
+                Log("Wrote modified PAMT (" + pamtChanges + " entries redirected, " + crcUpdates + " paz CRCs + 1 HeaderCrc updated).");
             }
             catch (Exception ex)
             {
                 Log("PAMT write failed: " + ex.Message);
                 MessageBox.Show("PAMT write failed: " + ex.Message + "\r\n\r\nThe paz files were appended to but the index wasn't updated. The game will still work; click 'Restore Backup' to truncate the appended bytes.", "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
+            }
+
+            // Update meta/0.papgt: find the entry whose folder name = the PAMT's parent directory (e.g. "0008") and refresh its PamtCrc.
+            try
+            {
+                var pamtDirName = Path.GetFileName(Path.GetDirectoryName(pamtPath));
+                if (File.Exists(papgtLive))
+                {
+                    var papgt = File.ReadAllBytes(papgtLive);
+                    int papgtEntryCount = papgt[8];
+                    int strTableStart = 12 + papgtEntryCount * 12 + 4; // 4 = string-table-size prefix
+                    bool foundEntry = false;
+                    for (int j = 0; j < papgtEntryCount; j++)
+                    {
+                        int eOff = 12 + j * 12;
+                        uint nameOffset = (uint)(papgt[eOff + 4] | (papgt[eOff + 5] << 8) | (papgt[eOff + 6] << 16) | (papgt[eOff + 7] << 24));
+                        int strPos = strTableStart + (int)nameOffset;
+                        int strLen = 0;
+                        while (strPos + strLen < papgt.Length && papgt[strPos + strLen] != 0) strLen++;
+                        var entryName = System.Text.Encoding.ASCII.GetString(papgt, strPos, strLen);
+                        if (entryName == pamtDirName)
+                        {
+                            ArchiveExtractor.WriteU32LE(papgt, eOff + 8, pamtHeaderCrc);
+                            foundEntry = true;
+                            Log("papgt entry '" + entryName + "' PamtCrc -> 0x" + pamtHeaderCrc.ToString("X8"));
+                            break;
+                        }
+                    }
+                    if (!foundEntry)
+                    {
+                        Log("WARNING: archive '" + pamtDirName + "' not found in papgt — engine may reject changes.");
+                    }
+                    else
+                    {
+                        // Recompute papgt's own HeaderCrc over papgt[12..end]
+                        uint papgtCrc = ArchiveExtractor.PaChecksum(papgt, 12, papgt.Length - 12);
+                        ArchiveExtractor.WriteU32LE(papgt, 4, papgtCrc);
+                        Log("papgt HeaderCrc -> 0x" + papgtCrc.ToString("X8"));
+                        File.WriteAllBytes(papgtLive, papgt);
+                        Log("Wrote updated meta/0.papgt.");
+                    }
+                }
+                else
+                {
+                    Log("WARNING: meta/0.papgt not found — engine probably won't launch with modified PAMT.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("papgt update failed: " + ex.Message);
             }
 
             MessageBox.Show(
@@ -3606,6 +3951,7 @@ namespace CdJsonModManager
                 "\r\nLaunch Crimson Desert and test.\r\nClick 'Restore Backup' to fully revert.",
                 "Mods applied", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
+
 
         private void RevertPazAppend()
         {
@@ -3626,6 +3972,21 @@ namespace CdJsonModManager
                     restored++;
                 }
                 catch (Exception ex) { Log("PAMT restore failed: " + ex.Message); }
+            }
+
+            // Restore papgt (Apply now updates it, so revert needs to undo that)
+            var papgtBackupRevert = Path.Combine(backupRoot, "..", "0.papgt.original");
+            papgtBackupRevert = Path.GetFullPath(papgtBackupRevert);
+            var papgtLiveRevert = Path.Combine(gamePath, "meta", "0.papgt");
+            if (File.Exists(papgtBackupRevert) && File.Exists(papgtLiveRevert))
+            {
+                try
+                {
+                    File.Copy(papgtBackupRevert, papgtLiveRevert, true);
+                    Log("Restored papgt from " + papgtBackupRevert);
+                    restored++;
+                }
+                catch (Exception ex) { Log("papgt restore failed: " + ex.Message); }
             }
 
             // Truncate each tracked .paz back to its recorded original length
@@ -3660,6 +4021,7 @@ namespace CdJsonModManager
             try
             {
                 if (File.Exists(pamtBackup)) File.Delete(pamtBackup);
+                if (File.Exists(papgtBackupRevert)) File.Delete(papgtBackupRevert);
                 foreach (var lf in Directory.GetFiles(backupRoot, "*.length.original")) File.Delete(lf);
             }
             catch { }
@@ -3782,7 +4144,7 @@ namespace CdJsonModManager
 
             if (work.Count == 0)
             {
-                MessageBox.Show("Nothing to apply (no files prepared cleanly). Run Verify Bytes to diagnose.", "Apply aborted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Nothing to apply (no files prepared cleanly). Run Check Match to diagnose.", "Apply aborted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -4348,6 +4710,43 @@ namespace CdJsonModManager
         }
     }
 
+    // TabControl subclass that paints its full background dark before letting DrawItem render the tabs.
+    // The stock TabControl with Appearance.FlatButtons paints its strip with SystemColors.Control (white),
+    // which leaks through under our owner-drawn tab buttons. Taking over OnPaint kills that completely.
+    internal sealed class DarkTabControl : TabControl
+    {
+        public Color StripColor { get; set; } = Color.FromArgb(14, 15, 11);
+
+        public DarkTabControl()
+        {
+            SetStyle(ControlStyles.UserPaint
+                | ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw, true);
+            DoubleBuffered = true;
+            DrawMode = TabDrawMode.OwnerDrawFixed;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using (var b = new SolidBrush(StripColor)) e.Graphics.FillRectangle(b, ClientRectangle);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            // Background — the whole control area, including the strip-right and the page-border line.
+            using (var b = new SolidBrush(StripColor)) e.Graphics.FillRectangle(b, ClientRectangle);
+            // Tabs — fire DrawItem for each so existing handlers render the buttons.
+            for (int i = 0; i < TabCount; i++)
+            {
+                var rect = GetTabRect(i);
+                var state = (i == SelectedIndex) ? DrawItemState.Selected : DrawItemState.None;
+                var args = new DrawItemEventArgs(e.Graphics, Font, rect, i, state);
+                OnDrawItem(args);
+            }
+        }
+    }
+
     internal sealed class GradientButton : Control
     {
         public enum Style { Default, Primary, Safe, Danger, Donate }
@@ -4596,7 +4995,7 @@ namespace CdJsonModManager
             grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             Controls.Add(grid);
 
-            dot = new DotPanel { Width = 10, Height = 10, BackColor = Color.Transparent, Anchor = AnchorStyles.Left, Margin = new Padding(0, 8, 0, 0) };
+            dot = new DotPanel { Width = 10, Height = 10, BackColor = Color.Transparent, Anchor = AnchorStyles.None, Margin = new Padding(0) };
             grid.Controls.Add(dot, 0, 0);
 
             labelControl = new Label
@@ -4615,8 +5014,8 @@ namespace CdJsonModManager
             {
                 Width = 100,
                 Height = 22,
-                Anchor = AnchorStyles.Right,
-                Margin = new Padding(0, 7, 0, 0)
+                Anchor = AnchorStyles.None,
+                Margin = new Padding(0)
             };
             grid.Controls.Add(badgeControl, 2, 0);
 
@@ -4959,6 +5358,386 @@ namespace CdJsonModManager
             data[offset + 1] = (byte)((value >> 8) & 0xFF);
             data[offset + 2] = (byte)((value >> 16) & 0xFF);
             data[offset + 3] = (byte)((value >> 24) & 0xFF);
+        }
+
+        // ============================================================
+        // 32-bit hash candidates — diagnostic harness.
+        // We don't yet know which algorithm Crimson Desert uses for the
+        // 4-byte field at PAMT offset 16 + i*12 + 0. The diagnostic
+        // computes all common 32-bit hashes over the paz file (full + a
+        // few windows) and prints them so we can identify the match.
+        // Once the algorithm is known these can be trimmed down.
+        // ============================================================
+
+        private static uint[] _crc32IeeeTable;
+        private static uint[] _crc32CTable;
+
+        public static uint[] PublicCrcTable(uint poly) { return BuildCrcTable(poly); }
+
+        // ============================================================
+        // Bob Jenkins' lookup3 / hashlittle — used by Pearl Abyss engine.
+        // Reference: http://burtleburtle.net/bob/c/lookup3.c
+        // Returns just the primary 32-bit hash 'c'.
+        // ============================================================
+        public static uint HashLittle(byte[] data, int offset, int length, uint initval)
+        {
+            uint a, b, c;
+            a = b = c = 0xdeadbeefu + (uint)length + initval;
+
+            int i = offset;
+            int remaining = length;
+            while (remaining > 12)
+            {
+                a += (uint)data[i] | ((uint)data[i + 1] << 8) | ((uint)data[i + 2] << 16) | ((uint)data[i + 3] << 24);
+                b += (uint)data[i + 4] | ((uint)data[i + 5] << 8) | ((uint)data[i + 6] << 16) | ((uint)data[i + 7] << 24);
+                c += (uint)data[i + 8] | ((uint)data[i + 9] << 8) | ((uint)data[i + 10] << 16) | ((uint)data[i + 11] << 24);
+                // mix(a,b,c)
+                a -= c; a ^= Rotl(c, 4); c += b;
+                b -= a; b ^= Rotl(a, 6); a += c;
+                c -= b; c ^= Rotl(b, 8); b += a;
+                a -= c; a ^= Rotl(c, 16); c += b;
+                b -= a; b ^= Rotl(a, 19); a += c;
+                c -= b; c ^= Rotl(b, 4); b += a;
+                i += 12; remaining -= 12;
+            }
+            // Tail (1..12 bytes)
+            switch (remaining)
+            {
+                case 12: c += (uint)data[i + 11] << 24; goto case 11;
+                case 11: c += (uint)data[i + 10] << 16; goto case 10;
+                case 10: c += (uint)data[i + 9] << 8; goto case 9;
+                case 9: c += (uint)data[i + 8]; goto case 8;
+                case 8: b += (uint)data[i + 7] << 24; goto case 7;
+                case 7: b += (uint)data[i + 6] << 16; goto case 6;
+                case 6: b += (uint)data[i + 5] << 8; goto case 5;
+                case 5: b += (uint)data[i + 4]; goto case 4;
+                case 4: a += (uint)data[i + 3] << 24; goto case 3;
+                case 3: a += (uint)data[i + 2] << 16; goto case 2;
+                case 2: a += (uint)data[i + 1] << 8; goto case 1;
+                case 1: a += (uint)data[i]; break;
+                case 0: return c;
+            }
+            // final(a,b,c)
+            c ^= b; c -= Rotl(b, 14);
+            a ^= c; a -= Rotl(c, 11);
+            b ^= a; b -= Rotl(a, 25);
+            c ^= b; c -= Rotl(b, 16);
+            a ^= c; a -= Rotl(c, 4);
+            b ^= a; b -= Rotl(a, 14);
+            c ^= b; c -= Rotl(b, 24);
+            return c;
+        }
+
+        private static uint Rotl(uint x, int k) { return (x << k) | (x >> (32 - k)); }
+
+        // For huge files, allocate the whole file into memory and call HashLittle once.
+        public static uint HashLittleFile(string path, uint initval)
+        {
+            var buf = File.ReadAllBytes(path);
+            return HashLittle(buf, 0, buf.Length, initval);
+        }
+
+        // ============================================================
+        // Pearl Abyss checksum (used by Crimson Desert).
+        // Reverse-engineered from JMM (CD JSON Mod Manager V8 BETA),
+        // class CDModManager.PaChecksum.
+        //
+        // Variant of Bob Jenkins lookup3 with a custom init and a
+        // custom finalisation that mixes Rotl + Rotr.
+        //   PA_MAGIC = 558_228_019 (= 0x21456BB3)
+        //   init: a = b = c = (uint)(length - PA_MAGIC)
+        //   mix:  same six rotations as standard lookup3 (4,6,8,16,19,4)
+        //   final: 8-step custom mix (see code below).
+        //
+        // Used to compute:
+        //   • per-paz Crc       — PaChecksum(<entire .paz file>),
+        //                         written into 0.pamt at row+4 of each paz
+        //   • PAMT HeaderCrc    — PaChecksum(pamt[12..end]),
+        //                         written at 0.pamt[0..3]
+        //   • papgt HeaderCrc   — PaChecksum(papgt_body[entries+stringtable]),
+        //                         written at meta/0.papgt[4..7]
+        //   • papgt PamtCrc[i]  — copy of the corresponding archive's PAMT HeaderCrc
+        // ============================================================
+        public const uint PA_MAGIC = 558228019u;
+
+        public static uint PaChecksum(byte[] data, int offset, int length)
+        {
+            if (length == 0) return 0u;
+            uint a, b, c;
+            a = b = c = (uint)(length - PA_MAGIC);
+            int p = offset;
+            int rem = length;
+            while (rem > 12)
+            {
+                b += (uint)data[p] | ((uint)data[p + 1] << 8) | ((uint)data[p + 2] << 16) | ((uint)data[p + 3] << 24);
+                a += (uint)data[p + 4] | ((uint)data[p + 5] << 8) | ((uint)data[p + 6] << 16) | ((uint)data[p + 7] << 24);
+                c += (uint)data[p + 8] | ((uint)data[p + 9] << 8) | ((uint)data[p + 10] << 16) | ((uint)data[p + 11] << 24);
+                b -= c; b ^= Rotl(c, 4); c += a;
+                a -= b; a ^= Rotl(b, 6); b += c;
+                c -= a; c ^= Rotl(a, 8); a += b;
+                b -= c; b ^= Rotl(c, 16); c += a;
+                a -= b; a ^= Rotl(b, 19); b += c;
+                c -= a; c ^= Rotl(a, 4); a += b;
+                p += 12; rem -= 12;
+            }
+            if (rem >= 12) c += (uint)data[p + 11] << 24;
+            if (rem >= 11) c += (uint)data[p + 10] << 16;
+            if (rem >= 10) c += (uint)data[p + 9] << 8;
+            if (rem >= 9) c += (uint)data[p + 8];
+            if (rem >= 8) a += (uint)data[p + 7] << 24;
+            if (rem >= 7) a += (uint)data[p + 6] << 16;
+            if (rem >= 6) a += (uint)data[p + 5] << 8;
+            if (rem >= 5) a += (uint)data[p + 4];
+            if (rem >= 4) b += (uint)data[p + 3] << 24;
+            if (rem >= 3) b += (uint)data[p + 2] << 16;
+            if (rem >= 2) b += (uint)data[p + 1] << 8;
+            if (rem >= 1) b += (uint)data[p];
+            // Custom finalisation — note the Rotr at steps 3 and 8.
+            uint t1 = (a ^ c) - Rotl(a, 14);
+            uint t2 = (b ^ t1) - Rotl(t1, 11);
+            uint t3 = (t2 ^ a) - Rotr(t2, 7);
+            uint t4 = (t3 ^ t1) - Rotl(t3, 16);
+            uint t5 = Rotl(t4, 4);
+            uint t6 = (t2 ^ t4) - t5;
+            uint t7 = (t6 ^ t3) - Rotl(t6, 14);
+            return (t7 ^ t4) - Rotr(t7, 8);
+        }
+
+        private static uint Rotr(uint x, int k) { return (x >> k) | (x << (32 - k)); }
+
+        // Full-file PaChecksum — loads the whole file (up to ~2 GB) and hashes it in one pass.
+        public static uint PaChecksumFile(string path)
+        {
+            var data = File.ReadAllBytes(path);
+            return PaChecksum(data, 0, data.Length);
+        }
+
+        private static uint[] BuildCrcTable(uint poly)
+        {
+            var t = new uint[256];
+            for (uint i = 0; i < 256; i++)
+            {
+                uint c = i;
+                for (int j = 0; j < 8; j++)
+                {
+                    c = ((c & 1) != 0) ? (poly ^ (c >> 1)) : (c >> 1);
+                }
+                t[i] = c;
+            }
+            return t;
+        }
+
+        public sealed class HashAccumulator
+        {
+            public uint Crc32 = 0xFFFFFFFFu;
+            public uint Crc32C = 0xFFFFFFFFu;
+            public uint AdlerA = 1;
+            public uint AdlerB = 0;
+            public uint Fnv1a = 0x811C9DC5u;
+            public ulong Sum32 = 0;
+            public uint Xor32 = 0;
+            public long ByteCount = 0;
+            // For xxHash32 we accumulate via a small streaming impl below.
+            public XxHash32State Xx = new XxHash32State();
+
+            public void Update(byte[] buf, int offset, int count)
+            {
+                if (_crc32IeeeTable == null) _crc32IeeeTable = BuildCrcTable(0xEDB88320u);
+                if (_crc32CTable == null) _crc32CTable = BuildCrcTable(0x82F63B78u);
+                var crcT = _crc32IeeeTable;
+                var crcCT = _crc32CTable;
+                uint c = Crc32;
+                uint cc = Crc32C;
+                uint a = AdlerA;
+                uint b = AdlerB;
+                uint f = Fnv1a;
+                ulong s = Sum32;
+                uint x = Xor32;
+                for (int i = 0; i < count; i++)
+                {
+                    byte v = buf[offset + i];
+                    c = crcT[(c ^ v) & 0xFFu] ^ (c >> 8);
+                    cc = crcCT[(cc ^ v) & 0xFFu] ^ (cc >> 8);
+                    a = (a + v) % 65521u;
+                    b = (b + a) % 65521u;
+                    f = (f ^ v) * 16777619u;
+                    s += v;
+                    if (((ByteCount + i) & 3) == 0) x ^= (uint)(v << 0);
+                    else if (((ByteCount + i) & 3) == 1) x ^= (uint)(v << 8);
+                    else if (((ByteCount + i) & 3) == 2) x ^= (uint)(v << 16);
+                    else x ^= (uint)(v << 24);
+                }
+                Crc32 = c;
+                Crc32C = cc;
+                AdlerA = a;
+                AdlerB = b;
+                Fnv1a = f;
+                Sum32 = s;
+                Xor32 = x;
+                ByteCount += count;
+                Xx.Update(buf, offset, count);
+            }
+
+            public uint FinalCrc32 { get { return Crc32 ^ 0xFFFFFFFFu; } }
+            public uint FinalCrc32C { get { return Crc32C ^ 0xFFFFFFFFu; } }
+            public uint FinalAdler32 { get { return (AdlerB << 16) | AdlerA; } }
+            public uint FinalSum32 { get { return (uint)(Sum32 & 0xFFFFFFFFu); } }
+            public uint FinalXxHash32 { get { return Xx.Finalize(); } }
+        }
+
+        public sealed class XxHash32State
+        {
+            const uint P1 = 2654435761u;
+            const uint P2 = 2246822519u;
+            const uint P3 = 3266489917u;
+            const uint P4 = 668265263u;
+            const uint P5 = 374761393u;
+            uint v1, v2, v3, v4;
+            byte[] buf = new byte[16];
+            int bufLen = 0;
+            ulong total = 0;
+            uint seed = 0;
+            bool large = false;
+            public XxHash32State() { Reset(0); }
+            public void Reset(uint s)
+            {
+                seed = s;
+                v1 = s + P1 + P2;
+                v2 = s + P2;
+                v3 = s + 0;
+                v4 = s - P1;
+                bufLen = 0;
+                total = 0;
+                large = false;
+            }
+            static uint Rotl(uint x, int r) { return (x << r) | (x >> (32 - r)); }
+            static uint Round(uint acc, uint input) { acc += input * P2; acc = Rotl(acc, 13); acc *= P1; return acc; }
+            public void Update(byte[] data, int offset, int count)
+            {
+                total += (ulong)count;
+                if (bufLen != 0)
+                {
+                    int need = 16 - bufLen;
+                    if (count < need)
+                    {
+                        Buffer.BlockCopy(data, offset, buf, bufLen, count);
+                        bufLen += count;
+                        return;
+                    }
+                    Buffer.BlockCopy(data, offset, buf, bufLen, need);
+                    int p = 0;
+                    v1 = Round(v1, BitConverter.ToUInt32(buf, p)); p += 4;
+                    v2 = Round(v2, BitConverter.ToUInt32(buf, p)); p += 4;
+                    v3 = Round(v3, BitConverter.ToUInt32(buf, p)); p += 4;
+                    v4 = Round(v4, BitConverter.ToUInt32(buf, p));
+                    offset += need; count -= need; bufLen = 0; large = true;
+                }
+                while (count >= 16)
+                {
+                    v1 = Round(v1, BitConverter.ToUInt32(data, offset)); offset += 4;
+                    v2 = Round(v2, BitConverter.ToUInt32(data, offset)); offset += 4;
+                    v3 = Round(v3, BitConverter.ToUInt32(data, offset)); offset += 4;
+                    v4 = Round(v4, BitConverter.ToUInt32(data, offset)); offset += 4;
+                    count -= 16; large = true;
+                }
+                if (count > 0)
+                {
+                    Buffer.BlockCopy(data, offset, buf, 0, count);
+                    bufLen = count;
+                }
+            }
+            public uint Finalize()
+            {
+                uint h;
+                if (large) h = Rotl(v1, 1) + Rotl(v2, 7) + Rotl(v3, 12) + Rotl(v4, 18);
+                else h = seed + P5;
+                h += (uint)total;
+                int p = 0;
+                while (bufLen - p >= 4)
+                {
+                    h += BitConverter.ToUInt32(buf, p) * P3;
+                    h = Rotl(h, 17) * P4;
+                    p += 4;
+                }
+                while (p < bufLen)
+                {
+                    h += (uint)buf[p] * P5;
+                    h = Rotl(h, 11) * P1;
+                    p++;
+                }
+                h ^= h >> 15; h *= P2;
+                h ^= h >> 13; h *= P3;
+                h ^= h >> 16;
+                return h;
+            }
+        }
+
+        public static HashAccumulator HashFile(string path, long maxBytes, Action<long, long> progress)
+        {
+            var acc = new HashAccumulator();
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.SequentialScan))
+            {
+                long total = fs.Length;
+                long limit = (maxBytes > 0 && maxBytes < total) ? maxBytes : total;
+                var buf = new byte[1 << 20]; // 1 MB chunks
+                long done = 0;
+                while (done < limit)
+                {
+                    int want = (int)Math.Min(buf.Length, limit - done);
+                    int got = fs.Read(buf, 0, want);
+                    if (got <= 0) break;
+                    acc.Update(buf, 0, got);
+                    done += got;
+                    if (progress != null) progress(done, limit);
+                }
+            }
+            return acc;
+        }
+
+        public static byte[] ReadFirstBytes(string path, int n)
+        {
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                long len = fs.Length;
+                int take = (int)Math.Min((long)n, len);
+                var buf = new byte[take];
+                int got = 0;
+                while (got < take)
+                {
+                    int r = fs.Read(buf, got, take - got);
+                    if (r <= 0) break;
+                    got += r;
+                }
+                if (got < take) Array.Resize(ref buf, got);
+                return buf;
+            }
+        }
+
+        public static byte[] ReadLastBytes(string path, int n)
+        {
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                long len = fs.Length;
+                int take = (int)Math.Min((long)n, len);
+                fs.Seek(len - take, SeekOrigin.Begin);
+                var buf = new byte[take];
+                int got = 0;
+                while (got < take)
+                {
+                    int r = fs.Read(buf, got, take - got);
+                    if (r <= 0) break;
+                    got += r;
+                }
+                if (got < take) Array.Resize(ref buf, got);
+                return buf;
+            }
+        }
+
+        public static HashAccumulator HashBytes(byte[] data)
+        {
+            var acc = new HashAccumulator();
+            acc.Update(data, 0, data.Length);
+            return acc;
         }
 
         public static string Extract(string gamePath, string gameFile, string cacheDir, Action<string> log)
@@ -6629,16 +7408,17 @@ namespace CdJsonModManager
         public BugReportDialog(Exception ex, string source, string crashPath, Dictionary<string, object> payload, bool isCrash)
         {
             Text = isCrash ? "Unexpected Error" : "Report a Bug";
-            Width = 640;
-            Height = 520;
+            Width = 820;
+            Height = 640;
+            MinimumSize = new Size(560, 420);
             StartPosition = FormStartPosition.CenterParent;
             BackColor = Color.FromArgb(14, 15, 11);
             ForeColor = Color.FromArgb(244, 234, 209);
             Font = new Font("Segoe UI", 9.5f);
             ShowIcon = false;
-            MaximizeBox = false;
+            MaximizeBox = true;
             MinimizeBox = false;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            FormBorderStyle = FormBorderStyle.Sizable;
             Padding = new Padding(18);
 
             var title = new Label
@@ -6669,7 +7449,9 @@ namespace CdJsonModManager
             {
                 Multiline = true,
                 ReadOnly = true,
-                ScrollBars = ScrollBars.Vertical,
+                ScrollBars = ScrollBars.Both,
+                WordWrap = false,
+                MaxLength = 1024 * 1024, // bump well past the 32 KB default — log + state can easily exceed it
                 BackColor = Color.FromArgb(9, 10, 8),
                 ForeColor = Color.FromArgb(199, 187, 155),
                 BorderStyle = BorderStyle.FixedSingle,
@@ -6751,6 +7533,29 @@ namespace CdJsonModManager
         public static Theme Ember() { return Make("Ember", "#120c09", "#1d1510", "#271b13", "#ffe6cd", "#b58d75", "#e28b3f", "#ffc06b"); }
         public static Theme Frost() { return Make("Frost", "#081018", "#101821", "#152334", "#e9f7ff", "#91a9ba", "#8cc7dd", "#bfefff"); }
         public static Theme Forest() { return Make("Forest", "#091109", "#101910", "#182718", "#eef5d8", "#98ad83", "#c0b15e", "#ece18c"); }
+
+        // Custom theme: takes a single accent colour and derives the rest from a dark Gilded-style base.
+        // Same shape as the built-ins so ApplyTheme/StyleListView/etc. don't need branching.
+        public static Theme Custom(Color accent)
+        {
+            var c = accent;
+            // Lighten the accent by ~15% for the secondary highlight.
+            int la = Math.Min(255, (int)(c.R + (255 - c.R) * 0.30));
+            int lb = Math.Min(255, (int)(c.G + (255 - c.G) * 0.30));
+            int lc = Math.Min(255, (int)(c.B + (255 - c.B) * 0.30));
+            var accent2 = Color.FromArgb(la, lb, lc);
+            return new Theme
+            {
+                Name = "Custom",
+                Background = ColorTranslator.FromHtml("#0c0d0a"),
+                Panel = ColorTranslator.FromHtml("#171812"),
+                Panel2 = ColorTranslator.FromHtml("#202115"),
+                Text = ColorTranslator.FromHtml("#f4ead1"),
+                Muted = ColorTranslator.FromHtml("#a99d7c"),
+                Accent = c,
+                Accent2 = accent2
+            };
+        }
 
         private static Theme Make(string name, string bg, string panel, string panel2, string text, string muted, string accent, string accent2)
         {
