@@ -3550,6 +3550,43 @@ namespace CdJsonModManager
                 ArchiveExtractor.WriteU32LE(pamtNew, eOff + 16, w.NewFlags);
                 pamtChanges++;
             }
+
+            // Update each affected paz's recorded size in the PAMT header.
+            // PAMT header layout, starting at byte 16:
+            //   for each paz i in 0..pazCount-1:
+            //     bytes [16 + i*12 + 0 .. +3]  -- 4 unknown bytes (likely a hash, leaving alone)
+            //     bytes [16 + i*12 + 4 .. +7]  -- u32 LE: paz file size in bytes
+            //     bytes [16 + i*12 + 8 .. +11] -- 4 inter-paz bytes (only present for non-last paz)
+            // We only update the size field, since the paz grew when we appended.
+            int pazSizeUpdates = 0;
+            foreach (var pazFile in workItems.Where(w => w.Succeeded).Select(w => w.Entry.PazFile).Distinct())
+            {
+                var name = Path.GetFileName(pazFile);
+                int dot = name.IndexOf('.');
+                if (dot <= 0) continue;
+                if (!int.TryParse(name.Substring(0, dot), out int pazIndex)) continue;
+                long newLen;
+                try { newLen = new FileInfo(pazFile).Length; } catch { continue; }
+                if (newLen > uint.MaxValue)
+                {
+                    Log("WARNING: " + name + " grew past 4 GB — paz size field can't represent it.");
+                    continue;
+                }
+                int sizeOffset = 16 + pazIndex * 12 + 4;
+                if (sizeOffset + 4 > pamtNew.Length)
+                {
+                    Log("Paz size field offset out of range for " + name + " (idx " + pazIndex + ").");
+                    continue;
+                }
+                uint oldSize = (uint)(pamtData.PamtBytes[sizeOffset]
+                    | (pamtData.PamtBytes[sizeOffset + 1] << 8)
+                    | (pamtData.PamtBytes[sizeOffset + 2] << 16)
+                    | (pamtData.PamtBytes[sizeOffset + 3] << 24));
+                ArchiveExtractor.WriteU32LE(pamtNew, sizeOffset, (uint)newLen);
+                Log("PAMT header: " + name + " size " + oldSize + " -> " + newLen);
+                pazSizeUpdates++;
+            }
+            Log("Updated PAMT header paz sizes: " + pazSizeUpdates);
             try
             {
                 File.WriteAllBytes(pamtPath, pamtNew);
