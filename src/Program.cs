@@ -2895,8 +2895,9 @@ namespace CdJsonModManager
 
         private void DisableAllMods()
         {
-            // Revert any loose-file writes first so the game folder is clean.
-            try { RevertLooseFileApply(); } catch (Exception ex) { Log("Revert during uninstall: " + ex.Message); }
+            // Revert in priority order: real paz/pamt apply first, then any legacy loose-file writes.
+            try { RevertPazAppend(); } catch (Exception ex) { Log("Paz/pamt revert: " + ex.Message); }
+            try { RevertLooseFileApply(); } catch (Exception ex) { Log("Loose-file revert: " + ex.Message); }
             foreach (var box in activeBoxes.Values)
             {
                 box.Checked = false;
@@ -3275,22 +3276,22 @@ namespace CdJsonModManager
             }
         }
 
-        // ---------------------------------------------------------- APPLY MODS (loose-file probe)
-
-        // Probe approach: write the decompressed, patched files at their archive-relative
-        // paths inside the game folder. Many Pearl Abyss engines read loose files with priority
-        // over archived ones. If Crimson Desert behaves that way, the modded bytes take effect
-        // without ever touching the original .paz archives.
+        // ---------------------------------------------------------- APPLY MODS (paz append + pamt redirect)
         //
-        // SAFETY:
-        // - We never modify original game archives.
-        // - If the target loose-file path already has a real file, we back it up to
-        //   <game>\_ujmm_probe_backups\<archive_path>.bak before overwriting.
-        // - Every file written is recorded in backups\loose_manifest.json so Revert restores
-        //   the exact pre-apply state.
+        // For each modded file:
+        //   1. Find the matching PAMT entry, read original compressed bytes from .paz.
+        //   2. Decompress, apply patches, recompress (LZ4 all-literals).
+        //   3. APPEND the recompressed bytes to the .paz file (original data untouched).
+        //   4. Surgically rewrite the entry's pazOffset/compSize/origSize in the PAMT.
+        //
+        // Backups (one-time, per archive):
+        //   _jmm_backups\0008\0.pamt.original           — full PAMT bytes pre-apply
+        //   _jmm_backups\0008\<N>.paz.length.original   — original byte length of the .paz
+        // Revert truncates each .paz back to its recorded length and restores the PAMT.
+        // No multi-GB paz copies, just length tracking + header replay.
 
-        private const string LooseManifestName = "loose_manifest.json";
-        private const string ProbeBackupsDirName = "_ujmm_probe_backups";
+        private const string LooseManifestName = "loose_manifest.json";   // legacy probe manifest
+        private const string ProbeBackupsDirName = "_ujmm_probe_backups"; // legacy probe backups
 
         private string LooseManifestPath()
         {
@@ -3302,11 +3303,335 @@ namespace CdJsonModManager
             return IsGameFolder(gamePath) ? Path.Combine(gamePath, ProbeBackupsDirName) : "";
         }
 
-        private void ApplyOverlayStub()
+        private string PazBackupsRoot()
         {
-            ApplyAsLooseFiles();
+            return IsGameFolder(gamePath) ? Path.Combine(gamePath, "_jmm_backups", "0008") : "";
         }
 
+        private void ApplyOverlayStub()
+        {
+            ApplyByPazAppend();
+        }
+
+        private sealed class ApplyWork
+        {
+            public PazEntry Entry;
+            public int EntryIndex;
+            public List<PatchChange> Changes;
+            public uint NewPazOffset;
+            public uint NewCompSize;
+            public uint NewOrigSize;
+            public uint NewFlags;
+            public bool Succeeded;
+        }
+
+        private void ApplyByPazAppend()
+        {
+            if (!IsGameFolder(gamePath))
+            {
+                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            var selected = mods.Where(m => activeBoxes.ContainsKey(m.Path) && activeBoxes[m.Path].Checked).ToList();
+            if (selected.Count == 0)
+            {
+                MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Group changes by gameFile across all active mods (using each mod's selected preset).
+            var byGameFile = new Dictionary<string, List<PatchChange>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var mod in selected)
+            {
+                var group = GroupFor(mod);
+                foreach (var c in mod.ChangesForGroup(group))
+                {
+                    if (string.IsNullOrEmpty(c.GameFile)) continue;
+                    if (!byGameFile.ContainsKey(c.GameFile)) byGameFile[c.GameFile] = new List<PatchChange>();
+                    byGameFile[c.GameFile].Add(c);
+                }
+            }
+            if (byGameFile.Count == 0)
+            {
+                MessageBox.Show("Selected mods have no patches with a target game_file.", "Nothing to apply", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var pre = MessageBox.Show(
+                "Apply " + byGameFile.Count + " modded game file(s) to your Crimson Desert install?\r\n\r\n" +
+                "How it works:\r\n" +
+                "  • Modded bytes are APPENDED to the existing archive(s) — original data is never overwritten.\r\n" +
+                "  • The archive index (PAMT) is patched in place to point at the new bytes.\r\n" +
+                "  • Pre-apply length of each archive + the original PAMT are saved to <game>\\_jmm_backups\\.\r\n" +
+                "  • Click 'Uninstall Mods' to fully revert (truncates archives back, restores the PAMT).\r\n\r\n" +
+                "Continue?",
+                "Apply mods?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (pre != DialogResult.Yes) return;
+
+            var pamtPath = Path.Combine(gamePath, "0008", "0.pamt");
+            var pazDir = Path.Combine(gamePath, "0008");
+
+            PamtParseResult pamtData;
+            try
+            {
+                pamtData = ArchiveExtractor.ParsePamtFull(pamtPath, pazDir);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not parse PAMT: " + ex.Message, "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Match PAMT entries to gameFiles (substring match on basename, same as the validator).
+            var workItems = new List<ApplyWork>();
+            foreach (var pair in byGameFile)
+            {
+                var basename = Path.GetFileName(pair.Key).ToLowerInvariant();
+                for (int i = 0; i < pamtData.Entries.Count; i++)
+                {
+                    var e = pamtData.Entries[i];
+                    if (string.IsNullOrEmpty(e.Path)) continue;
+                    if (!e.Path.ToLowerInvariant().Contains(basename)) continue;
+                    if (e.Path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) continue; // encrypted — skip
+                    workItems.Add(new ApplyWork { Entry = e, EntryIndex = i, Changes = pair.Value });
+                }
+            }
+            if (workItems.Count == 0)
+            {
+                MessageBox.Show("No matching archive entries found for the selected mods.", "Apply aborted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Backups (idempotent — if already present, do not overwrite — they reflect pre-FIRST-apply state)
+            var backupRoot = PazBackupsRoot();
+            Directory.CreateDirectory(backupRoot);
+            var pamtBackup = Path.Combine(backupRoot, "0.pamt.original");
+            if (!File.Exists(pamtBackup))
+            {
+                File.Copy(pamtPath, pamtBackup);
+                Log("Backed up PAMT to " + pamtBackup);
+            }
+            var affectedPazFiles = workItems.Select(w => w.Entry.PazFile).Distinct().ToList();
+            foreach (var pazFile in affectedPazFiles)
+            {
+                var lengthFile = Path.Combine(backupRoot, Path.GetFileName(pazFile) + ".length.original");
+                if (!File.Exists(lengthFile))
+                {
+                    var sz = new FileInfo(pazFile).Length;
+                    File.WriteAllText(lengthFile, sz.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    Log("Recorded original length " + sz + " for " + Path.GetFileName(pazFile));
+                }
+            }
+
+            int totalApplied = 0, totalMismatch = 0, fileSkipped = 0;
+            foreach (var pazGroup in workItems.GroupBy(w => w.Entry.PazFile))
+            {
+                var pazFile = pazGroup.Key;
+                using (var paz = new FileStream(pazFile, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
+                {
+                    foreach (var w in pazGroup)
+                    {
+                        try
+                        {
+                            // Read original bytes
+                            var readSize = w.Entry.Compressed ? w.Entry.CompSize : w.Entry.OrigSize;
+                            paz.Seek(w.Entry.Offset, SeekOrigin.Begin);
+                            var originalBytes = new byte[readSize];
+                            int got = 0;
+                            while (got < originalBytes.Length)
+                            {
+                                int r = paz.Read(originalBytes, got, originalBytes.Length - got);
+                                if (r <= 0) break;
+                                got += r;
+                            }
+
+                            // Decompress (or use as-is if uncompressed)
+                            byte[] decompressed;
+                            if (w.Entry.Compressed)
+                            {
+                                if (w.Entry.CompressionType != 2)
+                                {
+                                    Log("Skipping " + w.Entry.Path + " — unsupported compression type " + w.Entry.CompressionType);
+                                    fileSkipped++;
+                                    continue;
+                                }
+                                decompressed = ArchiveExtractor.Lz4BlockDecompressPublic(originalBytes, w.Entry.OrigSize);
+                            }
+                            else
+                            {
+                                decompressed = originalBytes;
+                            }
+
+                            // Apply patches
+                            int applied = 0, mismatch = 0;
+                            foreach (var c in w.Changes)
+                            {
+                                var orig = HexToBytes(c.Original);
+                                var patched = HexToBytes(c.Patched);
+                                if (c.Offset < 0 || c.Offset + orig.Length > decompressed.Length)
+                                {
+                                    mismatch++;
+                                    Log("Out of range: " + c.Label);
+                                    continue;
+                                }
+                                bool matches = true;
+                                for (int i = 0; i < orig.Length; i++)
+                                {
+                                    if (decompressed[c.Offset + i] != orig[i]) { matches = false; break; }
+                                }
+                                if (!matches)
+                                {
+                                    bool already = true;
+                                    for (int i = 0; i < patched.Length; i++)
+                                    {
+                                        if (decompressed[c.Offset + i] != patched[i]) { already = false; break; }
+                                    }
+                                    if (!already)
+                                    {
+                                        mismatch++;
+                                        Log("Byte mismatch: " + c.Label);
+                                        continue;
+                                    }
+                                }
+                                Buffer.BlockCopy(patched, 0, decompressed, c.Offset, patched.Length);
+                                applied++;
+                            }
+                            if (applied == 0)
+                            {
+                                Log("Skipped " + w.Entry.Path + " — no patches succeeded.");
+                                fileSkipped++;
+                                totalMismatch += mismatch;
+                                continue;
+                            }
+
+                            // Recompress with LZ4 all-literals
+                            var newCompressed = ArchiveExtractor.Lz4BlockCompress(decompressed);
+
+                            // Append to paz, capture new offset
+                            paz.Seek(0, SeekOrigin.End);
+                            long newOffset = paz.Position;
+                            paz.Write(newCompressed, 0, newCompressed.Length);
+
+                            w.NewPazOffset = (uint)newOffset;
+                            w.NewCompSize = (uint)newCompressed.Length;
+                            w.NewOrigSize = (uint)decompressed.Length;
+                            // Preserve pazIndex (low 8 bits) and other flag bits, force compression type to 2 (LZ4) at bits 16..19
+                            w.NewFlags = (w.Entry.Flags & 0xFFF0FFFFu) | 0x00020000u;
+                            w.Succeeded = true;
+
+                            totalApplied += applied;
+                            totalMismatch += mismatch;
+                            Log("Applied " + applied + " to " + w.Entry.Path + " (compSize " + w.Entry.CompSize + " -> " + w.NewCompSize + ")");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log("Apply error for " + w.Entry.Path + ": " + ex.Message);
+                            fileSkipped++;
+                        }
+                    }
+                    paz.Flush();
+                }
+            }
+
+            // Patch PAMT in memory — surgical 16-byte edit per entry (skip nodeRef, write pazOffset/compSize/origSize/flags)
+            var pamtNew = (byte[])pamtData.PamtBytes.Clone();
+            int pamtChanges = 0;
+            foreach (var w in workItems)
+            {
+                if (!w.Succeeded) continue;
+                int eOff = pamtData.EntrySectionStart + w.EntryIndex * 20;
+                if (eOff + 20 > pamtNew.Length)
+                {
+                    Log("PAMT entry offset out of range for " + w.Entry.Path + " — skipped.");
+                    continue;
+                }
+                ArchiveExtractor.WriteU32LE(pamtNew, eOff + 4, w.NewPazOffset);
+                ArchiveExtractor.WriteU32LE(pamtNew, eOff + 8, w.NewCompSize);
+                ArchiveExtractor.WriteU32LE(pamtNew, eOff + 12, w.NewOrigSize);
+                ArchiveExtractor.WriteU32LE(pamtNew, eOff + 16, w.NewFlags);
+                pamtChanges++;
+            }
+            try
+            {
+                File.WriteAllBytes(pamtPath, pamtNew);
+                Log("Wrote modified PAMT (" + pamtChanges + " entries redirected).");
+            }
+            catch (Exception ex)
+            {
+                Log("PAMT write failed: " + ex.Message);
+                MessageBox.Show("PAMT write failed: " + ex.Message + "\r\n\r\nThe paz files were appended to but the index wasn't updated. The game will still work; click 'Uninstall Mods' to truncate the appended bytes.", "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            MessageBox.Show(
+                "Applied " + totalApplied + " patches across " + pamtChanges + " archive entries.\r\n" +
+                (totalMismatch > 0 ? totalMismatch + " patch(es) skipped due to byte mismatch (see log).\r\n" : "") +
+                (fileSkipped > 0 ? fileSkipped + " file(s) skipped entirely.\r\n" : "") +
+                "\r\nLaunch Crimson Desert and test.\r\nClick 'Uninstall Mods' to fully revert.",
+                "Mods applied", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void RevertPazAppend()
+        {
+            if (!IsGameFolder(gamePath)) return;
+            var backupRoot = PazBackupsRoot();
+            if (!Directory.Exists(backupRoot)) return;
+
+            // Restore PAMT
+            var pamtBackup = Path.Combine(backupRoot, "0.pamt.original");
+            var pamtLive = Path.Combine(gamePath, "0008", "0.pamt");
+            int restored = 0;
+            if (File.Exists(pamtBackup) && File.Exists(pamtLive))
+            {
+                try
+                {
+                    File.Copy(pamtBackup, pamtLive, true);
+                    Log("Restored PAMT from " + pamtBackup);
+                    restored++;
+                }
+                catch (Exception ex) { Log("PAMT restore failed: " + ex.Message); }
+            }
+
+            // Truncate each tracked .paz back to its recorded original length
+            foreach (var lengthFile in Directory.GetFiles(backupRoot, "*.length.original"))
+            {
+                try
+                {
+                    var pazName = Path.GetFileName(lengthFile);
+                    pazName = pazName.Substring(0, pazName.Length - ".length.original".Length); // "0.paz"
+                    var pazLive = Path.Combine(gamePath, "0008", pazName);
+                    if (!File.Exists(pazLive)) continue;
+                    var origLen = long.Parse(File.ReadAllText(lengthFile).Trim(), System.Globalization.CultureInfo.InvariantCulture);
+                    var curLen = new FileInfo(pazLive).Length;
+                    if (curLen > origLen)
+                    {
+                        using (var fs = new FileStream(pazLive, FileMode.Open, FileAccess.Write))
+                        {
+                            fs.SetLength(origLen);
+                        }
+                        Log("Truncated " + pazName + " from " + curLen + " back to " + origLen);
+                        restored++;
+                    }
+                    else if (curLen < origLen)
+                    {
+                        Log("WARNING: " + pazName + " is shorter (" + curLen + ") than recorded original (" + origLen + ") — not truncating. Restore from your Steam files if needed.");
+                    }
+                }
+                catch (Exception ex) { Log("Truncate failed for " + lengthFile + ": " + ex.Message); }
+            }
+
+            // Clean up the backup markers so subsequent applies create fresh ones
+            try
+            {
+                if (File.Exists(pamtBackup)) File.Delete(pamtBackup);
+                foreach (var lf in Directory.GetFiles(backupRoot, "*.length.original")) File.Delete(lf);
+            }
+            catch { }
+
+            if (restored > 0) Log("Apply reverted: " + restored + " archive(s) restored to pre-apply state.");
+        }
+
+        // Legacy loose-file probe — kept for any orphaned probe writes from earlier sessions.
         private void ApplyAsLooseFiles()
         {
             if (!IsGameFolder(gamePath))
@@ -4304,8 +4629,159 @@ namespace CdJsonModManager
         }
     }
 
+    internal sealed class PamtParseResult
+    {
+        public List<PazEntry> Entries = new List<PazEntry>();
+        public int EntrySectionStart;   // byte offset within the PAMT where entry records begin
+        public byte[] PamtBytes;        // raw bytes (caller can mutate then write back)
+    }
+
     internal static class ArchiveExtractor
     {
+        // ============================================================
+        // LZ4 block encoder (all-literals form).
+        //
+        // Produces a valid LZ4 block per the Block Format spec: the entire
+        // input is emitted as one literal-only sequence (one token byte +
+        // optional extra-length bytes + literal bytes; no match section).
+        // The existing Lz4BlockDecompress accepts this — when the decoder
+        // exhausts input after consuming literals it stops cleanly.
+        //
+        // Cost: ~3-bytes-per-65KB overhead vs the input size. We pay that
+        // overhead for simplicity — implementing a real LZ4 matcher buys
+        // smaller output but matches our constraints already (we append
+        // to .paz, so file growth doesn't shift any other entries).
+        // ============================================================
+        public static byte[] Lz4BlockCompress(byte[] data)
+        {
+            if (data == null) data = new byte[0];
+            int len = data.Length;
+            var output = new List<byte>(len + 8);
+            if (len == 0)
+            {
+                output.Add(0x00);
+                return output.ToArray();
+            }
+            if (len < 15)
+            {
+                output.Add((byte)(len << 4));
+            }
+            else
+            {
+                output.Add(0xF0); // literal-length code = 15 → read extra bytes
+                int remaining = len - 15;
+                while (remaining >= 255)
+                {
+                    output.Add(255);
+                    remaining -= 255;
+                }
+                output.Add((byte)remaining);
+            }
+            output.AddRange(data);
+            return output.ToArray();
+        }
+
+        public static byte[] Lz4BlockDecompressPublic(byte[] data, uint originalSize)
+        {
+            return Lz4BlockDecompress(data, originalSize);
+        }
+
+        // ============================================================
+        // PAMT parse + entry-section byte offset (so callers can patch
+        // entries in place by computing entrySectionStart + idx*20).
+        // Otherwise identical to ParsePamt.
+        // ============================================================
+        public static PamtParseResult ParsePamtFull(string pamtPath, string pazDir)
+        {
+            var data = File.ReadAllBytes(pamtPath);
+            var pamtStem = Path.GetFileNameWithoutExtension(pamtPath);
+            var off = 4;
+            var pazCount = ReadU32(data, ref off);
+            off += 8;
+            for (var i = 0; i < pazCount; i++)
+            {
+                off += 8;
+                if (i < pazCount - 1) off += 4;
+            }
+
+            var folderSize = ReadU32(data, ref off);
+            var folderEnd = off + (int)folderSize;
+            var folderPrefix = "";
+            while (off < folderEnd)
+            {
+                var parent = ReadU32(data, ref off);
+                var slen = data[off++];
+                var name = Encoding.UTF8.GetString(data, off, slen);
+                off += slen;
+                if (parent == 0xFFFFFFFF) folderPrefix = name;
+            }
+
+            var nodeSize = ReadU32(data, ref off);
+            var nodeStart = off;
+            var nodes = new Dictionary<uint, Tuple<uint, string>>();
+            while (off < nodeStart + nodeSize)
+            {
+                var rel = (uint)(off - nodeStart);
+                var parent = ReadU32(data, ref off);
+                var slen = data[off++];
+                var name = Encoding.UTF8.GetString(data, off, slen);
+                off += slen;
+                nodes[rel] = Tuple.Create(parent, name);
+            }
+
+            Func<uint, string> buildPath = nodeRef =>
+            {
+                var parts = new List<string>();
+                var cur = nodeRef;
+                var guard = 0;
+                while (cur != 0xFFFFFFFF && guard++ < 64 && nodes.ContainsKey(cur))
+                {
+                    var node = nodes[cur];
+                    parts.Add(node.Item2);
+                    cur = node.Item1;
+                }
+                parts.Reverse();
+                return string.Concat(parts);
+            };
+
+            var folderCount = ReadU32(data, ref off);
+            off += 4 + (int)folderCount * 16;
+
+            var entrySectionStart = off;
+            var entries = new List<PazEntry>();
+            while (off + 20 <= data.Length)
+            {
+                var nodeRef = ReadU32(data, ref off);
+                var pazOffset = ReadU32(data, ref off);
+                var compSize = ReadU32(data, ref off);
+                var origSize = ReadU32(data, ref off);
+                var flags = ReadU32(data, ref off);
+                var pazIndex = (int)(flags & 0xFF);
+                var nodePath = buildPath(nodeRef);
+                var fullPath = string.IsNullOrEmpty(folderPrefix) ? nodePath : folderPrefix + "/" + nodePath;
+                var pazNum = int.Parse(pamtStem) + pazIndex;
+                entries.Add(new PazEntry
+                {
+                    Path = fullPath,
+                    PazFile = Path.Combine(pazDir, pazNum + ".paz"),
+                    Offset = pazOffset,
+                    CompSize = compSize,
+                    OrigSize = origSize,
+                    Flags = flags
+                });
+            }
+
+            return new PamtParseResult { Entries = entries, EntrySectionStart = entrySectionStart, PamtBytes = data };
+        }
+
+        public static void WriteU32LE(byte[] data, int offset, uint value)
+        {
+            data[offset] = (byte)(value & 0xFF);
+            data[offset + 1] = (byte)((value >> 8) & 0xFF);
+            data[offset + 2] = (byte)((value >> 16) & 0xFF);
+            data[offset + 3] = (byte)((value >> 24) & 0xFF);
+        }
+
         public static string Extract(string gamePath, string gameFile, string cacheDir, Action<string> log)
         {
             Directory.CreateDirectory(cacheDir);
