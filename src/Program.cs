@@ -95,7 +95,7 @@ namespace CdJsonModManager
         private readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue, RecursionLimit = 256 };
 
         private readonly List<JsonMod> mods = new List<JsonMod>();
-        private readonly Dictionary<string, CheckBox> activeBoxes = new Dictionary<string, CheckBox>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, FlatCheck> activeBoxes = new Dictionary<string, FlatCheck>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> groupBy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, RoundedPanel> presetCards = new Dictionary<string, RoundedPanel>(StringComparer.OrdinalIgnoreCase);
         private string activePreset = "";
@@ -601,7 +601,9 @@ namespace CdJsonModManager
 
             layout.Controls.Add(BuildPanelHeader("INSTALL", "Steam"), 0, 0);
 
-            var body = new Panel
+            // BufferedScrollPanel double-buffers the install body so scrolling the mod card list
+            // doesn't flicker / leave brief paint artefacts.
+            var body = new BufferedScrollPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.Transparent,
@@ -627,7 +629,7 @@ namespace CdJsonModManager
             bodyStack.Controls.Add(BuildThemeSwatches(), 0, 1);
             bodyStack.Controls.Add(BuildDropZone(), 0, 2);
 
-            modCardsHost = new FlowLayoutPanel
+            modCardsHost = new BufferedFlowPanel
             {
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
@@ -769,24 +771,20 @@ namespace CdJsonModManager
         private ThemeSwatch MakeCustomSwatch()
         {
             var saved = ConfigString("customAccent");
-            Theme baseTheme = Theme.Custom(Color.FromArgb(216, 166, 64)); // placeholder so the swatch renders
+            bool hasSaved = false;
+            Theme baseTheme = Theme.Custom(Color.FromArgb(216, 166, 64)); // fallback if parse fails
             if (!string.IsNullOrEmpty(saved))
             {
-                try { baseTheme = Theme.Custom(ColorTranslator.FromHtml(saved)); } catch { }
-            }
-            else
-            {
-                // Empty placeholder: dim, no saturation. Distinguishable from the built-ins.
-                baseTheme.Accent = Color.FromArgb(70, 70, 70);
-                baseTheme.Accent2 = Color.FromArgb(120, 120, 120);
-                baseTheme.Name = "Custom";
+                try { baseTheme = Theme.Custom(ColorTranslator.FromHtml(saved)); hasSaved = true; } catch { }
             }
             var sw = new ThemeSwatch(baseTheme)
             {
                 Width = 50,
                 Height = 44,
                 Margin = new Padding(0, 0, 6, 6),
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
+                // Render as a dashed "+" placeholder until the user picks a colour for the first time.
+                IsEmptyPlaceholder = !hasSaved
             };
             tipsHost.SetToolTip(sw, "Custom theme — click to pick your own accent colour. Saved across launches.");
             sw.Click += (sender, args) =>
@@ -802,16 +800,9 @@ namespace CdJsonModManager
                     {
                         var hex = "#" + cd.Color.R.ToString("X2") + cd.Color.G.ToString("X2") + cd.Color.B.ToString("X2");
                         config["customAccent"] = hex;
-                        config["theme"] = "Custom";
                         SaveConfig(config);
-                        var newTheme = Theme.Custom(cd.Color);
-                        ApplyTheme(newTheme);
-                        // Re-render the swatch with the picked colour by replacing it in place.
-                        var idx = themeSwatchHost.Controls.GetChildIndex(sw);
-                        themeSwatchHost.Controls.Remove(sw);
-                        var refreshed = MakeCustomSwatch();
-                        themeSwatchHost.Controls.Add(refreshed);
-                        themeSwatchHost.Controls.SetChildIndex(refreshed, idx);
+                        // ApplyTheme re-renders the custom swatch (with the new saved colour or the placeholder).
+                        ApplyTheme(Theme.Custom(cd.Color));
                     }
                 }
             };
@@ -988,9 +979,24 @@ namespace CdJsonModManager
                 RowCount = 2,
                 BackColor = Color.Transparent
             };
-            listLayoutInner.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+            listLayoutInner.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
             listLayoutInner.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             listHost.Controls.Add(listLayoutInner);
+
+            // Top row: [search box] [All On] [All Off] — "All On"/"All Off" bulk-toggle every patch
+            // currently visible in the list (so they respect the active search filter).
+            var topRow = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                RowCount = 1,
+                BackColor = Color.Transparent,
+                Margin = new Padding(2, 2, 2, 6)
+            };
+            topRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            topRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            topRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            topRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             patchSearchBox = new TextBox
             {
@@ -998,8 +1004,7 @@ namespace CdJsonModManager
                 BorderStyle = BorderStyle.FixedSingle,
                 Font = new Font("Consolas", 9),
                 BackColor = Color.FromArgb(20, 21, 14),
-                ForeColor = Color.FromArgb(244, 234, 209),
-                Margin = new Padding(2, 2, 2, 6)
+                ForeColor = Color.FromArgb(244, 234, 209)
             };
             // Placeholder via a Label overlay (TextBox lacks native placeholder support in .NET FW).
             var ph = new Label
@@ -1015,11 +1020,25 @@ namespace CdJsonModManager
             patchSearchBox.GotFocus += (s, e) => ph.Visible = false;
             patchSearchBox.LostFocus += (s, e) => { if (string.IsNullOrEmpty(patchSearchBox.Text)) ph.Visible = true; };
             patchSearchBox.TextChanged += (s, e) => RefreshPatchList();
-            var searchHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            var searchHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0, 0, 6, 0) };
             searchHost.Controls.Add(patchSearchBox);
             searchHost.Controls.Add(ph);
             ph.BringToFront();
-            listLayoutInner.Controls.Add(searchHost, 0, 0);
+            topRow.Controls.Add(searchHost, 0, 0);
+
+            var allOnBtn = NewGradientButton("All On", GradientButton.Style.Safe, 70, () => BulkTogglePatches(true));
+            allOnBtn.Height = 28;
+            allOnBtn.Margin = new Padding(0, 0, 4, 0);
+            tipsHost.SetToolTip(allOnBtn, "Enable every patch currently shown in the list (respects the search filter).");
+            topRow.Controls.Add(allOnBtn, 1, 0);
+
+            var allOffBtn = NewGradientButton("All Off", GradientButton.Style.Default, 70, () => BulkTogglePatches(false));
+            allOffBtn.Height = 28;
+            allOffBtn.Margin = new Padding(0);
+            tipsHost.SetToolTip(allOffBtn, "Disable every patch currently shown in the list (respects the search filter). Combine with the search box: 'All Off', then search for the few you want and tick them.");
+            topRow.Controls.Add(allOffBtn, 2, 0);
+
+            listLayoutInner.Controls.Add(topRow, 0, 0);
 
             patchList = new ListView
             {
@@ -1047,9 +1066,56 @@ namespace CdJsonModManager
         private bool patchListSyncing = false;
         private TextBox patchSearchBox;
 
-        private static string PatchKey(JsonMod mod, int changeIndex)
+        // Key per-patch state by (mod, group, index). Group is part of the key so disabling a patch
+        // under preset 0% no longer also disables the corresponding patch under 5%/10%/etc.
+        private static string PatchKey(JsonMod mod, string group, int changeIndex)
         {
-            return Path.GetFileName(mod.Path) + "|" + changeIndex;
+            return Path.GetFileName(mod.Path) + "|" + (group ?? "") + "|" + changeIndex;
+        }
+
+        // Flip every currently-visible patch to enabled/disabled in one batch (no per-row config saves).
+        private void BulkTogglePatches(bool enable)
+        {
+            if (patchList == null || patchList.Items.Count == 0) return;
+            patchListSyncing = true;
+            patchList.BeginUpdate();
+            try
+            {
+                foreach (ListViewItem item in patchList.Items)
+                {
+                    var key = item.Tag as string;
+                    if (string.IsNullOrEmpty(key)) continue;
+                    if (enable) disabledPatches.Remove(key);
+                    else disabledPatches.Add(key);
+                    item.Checked = enable;
+                }
+            }
+            finally
+            {
+                patchList.EndUpdate();
+                patchListSyncing = false;
+            }
+            config["disabledPatches"] = disabledPatches.ToArray();
+            SaveConfig(config);
+            UpdateBottomSummary();
+            // Refresh counter line in the panel header.
+            if (workspaceCounter != null)
+            {
+                int total = 0; foreach (var mod in mods) total += mod.Changes.Count;
+                int active = 0;
+                foreach (var mod in mods)
+                {
+                    if (!activeBoxes.ContainsKey(mod.Path) || !activeBoxes[mod.Path].Checked) continue;
+                    var grp = GroupFor(mod);
+                    int idx = 0;
+                    foreach (var c in mod.ChangesForGroup(grp))
+                    {
+                        if (!disabledPatches.Contains(PatchKey(mod, grp, idx))) active++;
+                        idx++;
+                    }
+                }
+                workspaceCounter.Text = active + " / " + total + " will apply";
+            }
         }
 
         private void PatchList_ItemChecked(object sender, ItemCheckedEventArgs e)
@@ -2098,7 +2164,7 @@ namespace CdJsonModManager
             checkHost.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             for (int i = 0; i < 4; i++) checkHost.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
 
-            checkGuards = new CheckGridRow("Original byte guards", "ready", BadgeKind.Neutral) { Margin = new Padding(0, 0, 0, 6), Dock = DockStyle.Fill };
+            checkGuards = new CheckGridRow("Original bytes", "ready", BadgeKind.Neutral) { Margin = new Padding(0, 0, 0, 6), Dock = DockStyle.Fill };
             checkOverlay = new CheckGridRow("Overlay target", "0036", BadgeKind.Neutral) { Margin = new Padding(0, 0, 0, 6), Dock = DockStyle.Fill };
             checkConflicts = new CheckGridRow("Conflicts", "—", BadgeKind.Neutral) { Margin = new Padding(0, 0, 0, 6), Dock = DockStyle.Fill };
             checkBackup = new CheckGridRow("Backup", "missing", BadgeKind.Warn) { Margin = new Padding(0, 0, 0, 0), Dock = DockStyle.Fill };
@@ -2174,6 +2240,7 @@ namespace CdJsonModManager
             {
                 Text = title,
                 Dock = DockStyle.Fill,
+                AutoSize = false,
                 Font = new Font("Consolas", 9.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(244, 199, 103),
                 BackColor = Color.Transparent,
@@ -2183,9 +2250,8 @@ namespace CdJsonModManager
             counter = new Label
             {
                 Text = counterText,
-                AutoSize = false,
-                Width = 200,
-                Dock = DockStyle.Fill,
+                AutoSize = true,
+                Anchor = AnchorStyles.Right,
                 Font = new Font("Consolas", 9),
                 ForeColor = Color.FromArgb(112, 104, 79),
                 BackColor = Color.Transparent,
@@ -2243,12 +2309,36 @@ namespace CdJsonModManager
             if (workspacePanel != null) StyleMainPanel(workspacePanel, theme);
             if (inspectorPanel != null) StyleMainPanel(inspectorPanel, theme);
 
+            // If we're switching AWAY from the custom theme, forget the saved colour so the next
+            // click on the custom swatch opens a fresh picker (the swatch reverts to placeholder).
+            bool toCustom = string.Equals(theme.Name, "Custom", StringComparison.OrdinalIgnoreCase);
+            if (!toCustom && config.ContainsKey("customAccent"))
+            {
+                config.Remove("customAccent");
+            }
+
             if (themeSwatchHost != null)
             {
                 foreach (Control c in themeSwatchHost.Controls)
                 {
                     var sw = c as ThemeSwatch;
                     if (sw != null) sw.IsActive = string.Equals(sw.SwatchTheme.Name, theme.Name, StringComparison.OrdinalIgnoreCase);
+                }
+
+                // Re-render the custom swatch so its placeholder state matches the (possibly cleared) customAccent.
+                for (int i = 0; i < themeSwatchHost.Controls.Count; i++)
+                {
+                    var sw = themeSwatchHost.Controls[i] as ThemeSwatch;
+                    if (sw != null && string.Equals(sw.SwatchTheme.Name, "Custom", StringComparison.OrdinalIgnoreCase))
+                    {
+                        themeSwatchHost.Controls.RemoveAt(i);
+                        sw.Dispose();
+                        var refreshed = MakeCustomSwatch();
+                        refreshed.IsActive = toCustom;
+                        themeSwatchHost.Controls.Add(refreshed);
+                        themeSwatchHost.Controls.SetChildIndex(refreshed, i);
+                        break;
+                    }
                 }
             }
 
@@ -2358,7 +2448,10 @@ namespace CdJsonModManager
                     RowCount = 2,
                     BackColor = Color.Transparent
                 };
-                stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+                // Title row is tall enough to fully contain the 20px FlatCheck plus a couple of pixels
+                // of breathing room on top/bottom — the previous 24px caused the box to be clipped where
+                // the description row began.
+                stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
                 stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 card.Controls.Add(stack);
 
@@ -2373,16 +2466,18 @@ namespace CdJsonModManager
                 titleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 titleRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-                var checkVisible = new CheckBox
+                var check = new FlatCheck
                 {
                     Width = 20,
                     Height = 20,
-                    Anchor = AnchorStyles.Left,
-                    Margin = new Padding(0, 4, 6, 0),
+                    Anchor = AnchorStyles.None,
+                    Margin = new Padding(0, 0, 6, 0),
                     BackColor = Color.Transparent,
-                    Cursor = Cursors.Hand
+                    Cursor = Cursors.Hand,
+                    CheckedFill = currentTheme.Accent,
+                    CheckedBorder = currentTheme.Accent2
                 };
-                titleRow.Controls.Add(checkVisible, 0, 0);
+                titleRow.Controls.Add(check, 0, 0);
 
                 var nameLabel = new Label
                 {
@@ -2439,17 +2534,8 @@ namespace CdJsonModManager
                 };
                 stack.Controls.Add(metaLabel, 0, 1);
 
-                var check = new CheckBox
-                {
-                    Visible = false,
-                    Checked = active.Contains(Path.GetFileName(mod.Path)) || active.Contains(mod.Name)
-                };
-                card.Controls.Add(check);
-                checkVisible.Checked = check.Checked;
-                bool syncing = false;
-                checkVisible.CheckedChanged += (s, e) => { if (syncing) return; syncing = true; check.Checked = checkVisible.Checked; syncing = false; };
-                check.CheckedChanged += (s, e) => { if (syncing) return; syncing = true; checkVisible.Checked = check.Checked; syncing = false; };
-                tipsHost.SetToolTip(checkVisible, "Select / deselect this mod. Multiple mods can be selected — the patch list shows what would apply.");
+                check.Checked = active.Contains(Path.GetFileName(mod.Path)) || active.Contains(mod.Name);
+                tipsHost.SetToolTip(check, "Select / deselect this mod. Multiple mods can be selected — the patch list shows what would apply.");
 
                 var menu = new ContextMenuStrip();
                 menu.Items.Add("Uninstall / Disable", null, (s, e) => DisableMod(capturedMod));
@@ -2487,7 +2573,7 @@ namespace CdJsonModManager
                 nameLabel.MouseClick += focusHandler;
                 metaLabel.MouseClick += focusHandler;
                 tag.MouseClick += focusHandler;
-                checkVisible.Click += (s, e) => FocusMod(capturedMod);
+                check.Click += (s, e) => FocusMod(capturedMod);
                 check.CheckedChanged += (sender, args) =>
                 {
                     UpdateModCardVisual(capturedMod);
@@ -2780,20 +2866,23 @@ namespace CdJsonModManager
                 return;
             }
 
-            // Header: which mod's presets we're showing
+            // Header: which mod's presets we're showing. AutoEllipsis + smaller font + 2-line height so
+            // long mod names like "RESOURCE COSTS-JSON" don't get clipped on the narrow preset rail.
             var header = new Label
             {
                 Text = focused.Name.ToUpperInvariant(),
                 Dock = DockStyle.Top,
                 AutoSize = false,
-                Height = 26,
-                Font = new Font("Consolas", 8.5f, FontStyle.Bold),
+                Height = 38,
+                Font = new Font("Consolas", 7.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(244, 199, 103),
                 BackColor = Color.Transparent,
                 TextAlign = ContentAlignment.BottomLeft,
-                Padding = new Padding(2, 0, 0, 4),
+                AutoEllipsis = true,
+                Padding = new Padding(2, 0, 4, 4),
                 Margin = new Padding(0, 0, 0, 4)
             };
+            tipsHost.SetToolTip(header, focused.Name);
             presetRailHost.Controls.Add(header);
 
             var groups = focused.Groups ?? new List<string>();
@@ -2948,9 +3037,13 @@ namespace CdJsonModManager
                 {
                     var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
                     var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
-                    var target = fileName + "  +0x" + change.Offset.ToString("X");
+                    var patchedPreview = !string.IsNullOrEmpty(change.Patched)
+                        ? "  → " + change.Patched.Replace(" ", "").ToUpperInvariant()
+                        : "";
+                    if (patchedPreview.Length > 18) patchedPreview = patchedPreview.Substring(0, 18) + "…";
+                    var target = fileName + "  +0x" + change.Offset.ToString("X") + patchedPreview;
                     activeCount++;
-                    var key = PatchKey(mod, idx);
+                    var key = PatchKey(mod, group, idx);
                     bool patchEnabled = !disabledPatches.Contains(key);
                     if (patchEnabled) activeAppliedCount++;
                     idx++;
@@ -2978,8 +3071,12 @@ namespace CdJsonModManager
                 {
                     var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
                     var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
-                    var target = fileName + "  +0x" + change.Offset.ToString("X");
-                    var key = PatchKey(focused, idx);
+                    var patchedPreview = !string.IsNullOrEmpty(change.Patched)
+                        ? "  → " + change.Patched.Replace(" ", "").ToUpperInvariant()
+                        : "";
+                    if (patchedPreview.Length > 18) patchedPreview = patchedPreview.Substring(0, 18) + "…";
+                    var target = fileName + "  +0x" + change.Offset.ToString("X") + patchedPreview;
+                    var key = PatchKey(focused, group, idx);
                     bool patchEnabled = !disabledPatches.Contains(key);
                     idx++;
                     if (filter.Length > 0
@@ -3577,7 +3674,7 @@ namespace CdJsonModManager
                 int idx = 0;
                 foreach (var c in mod.ChangesForGroup(group))
                 {
-                    var key = PatchKey(mod, idx);
+                    var key = PatchKey(mod, group, idx);
                     idx++;
                     if (string.IsNullOrEmpty(c.GameFile)) continue;
                     if (disabledPatches.Contains(key)) { skippedDisabled++; continue; }
@@ -4710,6 +4807,146 @@ namespace CdJsonModManager
         }
     }
 
+    // Double-buffered scrolling Panel — used for the install panel body so the mod card list
+    // doesn't flicker / leave artifacts while scrolling, and the scrollbar updates the content
+    // live during a drag (default WinForms behaviour only updates on release).
+    internal sealed class BufferedScrollPanel : Panel
+    {
+        public BufferedScrollPanel()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        }
+
+        // WS_EX_COMPOSITED enables window-level double-buffering (every child paints into one off-screen
+        // buffer before the final blit). Eliminates the half-painted-mid-scroll artefacts.
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+                return cp;
+            }
+        }
+
+        // Force the panel to redraw during a thumbtrack drag so the content scrolls with the thumb.
+        // Without this WinForms only updates the AutoScrollPosition on SB_ENDSCROLL (mouse release).
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_VSCROLL = 0x115;
+            const int WM_HSCROLL = 0x114;
+            base.WndProc(ref m);
+            if (m.Msg == WM_VSCROLL || m.Msg == WM_HSCROLL)
+            {
+                Update();
+            }
+        }
+    }
+
+    // Same trick for FlowLayoutPanel — used for the mod card host so the cards repaint smoothly
+    // during AutoScroll.
+    internal sealed class BufferedFlowPanel : FlowLayoutPanel
+    {
+        public BufferedFlowPanel()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+                return cp;
+            }
+        }
+    }
+
+    // Fully custom checkbox built on Control, NOT CheckBox — the CheckBox base class still drives
+    // some native painting through the Windows comctl32 button class even with UserPaint set, which
+    // is what was leaving the checkbox looking unchanged regardless of our OnPaint colour tweaks.
+    internal sealed class FlatCheck : Control
+    {
+        private bool _checked;
+        public bool Checked
+        {
+            get { return _checked; }
+            set
+            {
+                if (_checked == value) return;
+                _checked = value;
+                Invalidate();
+                CheckedChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+        public event EventHandler CheckedChanged;
+
+        public Color BoxFill { get; set; } = Color.FromArgb(80, 82, 66);
+        public Color BoxBorder { get; set; } = Color.FromArgb(230, 210, 160);
+        public Color CheckedFill { get; set; } = Color.FromArgb(216, 166, 64);
+        public Color CheckedBorder { get; set; } = Color.FromArgb(244, 199, 103);
+        public Color CheckMarkColor { get; set; } = Color.FromArgb(21, 15, 8);
+
+        public FlatCheck()
+        {
+            SetStyle(ControlStyles.UserPaint
+                | ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.SupportsTransparentBackColor
+                | ControlStyles.Selectable, true);
+            BackColor = Color.Transparent;
+            Width = 20;
+            Height = 20;
+            Cursor = Cursors.Hand;
+            TabStop = true;
+        }
+
+        protected override void OnClick(EventArgs e)
+        {
+            base.OnClick(e);
+            Checked = !Checked;
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.KeyCode == Keys.Space) { Checked = !Checked; e.Handled = true; }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            int side = Math.Min(Width, Height) - 2;
+            var rect = new Rectangle((Width - side) / 2, (Height - side) / 2, side, side);
+            using (var path = RoundedPanel.RoundedRect(rect, 4))
+            {
+                using (var fill = new SolidBrush(Checked ? CheckedFill : BoxFill))
+                    g.FillPath(fill, path);
+                using (var pen = new Pen(Checked ? CheckedBorder : BoxBorder, 1.8f))
+                    g.DrawPath(pen, path);
+            }
+            if (Checked)
+            {
+                using (var pen = new Pen(CheckMarkColor, 2.4f))
+                {
+                    pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                    pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                    int x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height;
+                    g.DrawLines(pen, new[] {
+                        new Point(x + (int)(w * 0.22), y + (int)(h * 0.52)),
+                        new Point(x + (int)(w * 0.42), y + (int)(h * 0.72)),
+                        new Point(x + (int)(w * 0.78), y + (int)(h * 0.30))
+                    });
+                }
+            }
+        }
+    }
+
     // TabControl subclass that paints its full background dark before letting DrawItem render the tabs.
     // The stock TabControl with Appearance.FlatButtons paints its strip with SystemColors.Control (white),
     // which leaks through under our owner-drawn tab buttons. Taking over OnPaint kills that completely.
@@ -4922,6 +5159,9 @@ namespace CdJsonModManager
     {
         public Theme SwatchTheme { get; private set; }
         public bool IsActive { get; set; }
+        // When true the swatch renders as a dashed-border placeholder with a centred "+" — used for the
+        // unconfigured Custom theme slot, so it reads as "click to choose" rather than as a real colour.
+        public bool IsEmptyPlaceholder { get; set; }
 
         public ThemeSwatch(Theme theme)
         {
@@ -4940,6 +5180,42 @@ namespace CdJsonModManager
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var rect = new Rectangle(0, 0, Math.Max(0, Width - 1), Math.Max(0, Height - 1));
+
+            if (IsEmptyPlaceholder)
+            {
+                // Subtle translucent fill so the swatch reads as "empty" against the dark panel.
+                using (var path = RoundedPanel.RoundedRect(rect, 12))
+                using (var brush = new SolidBrush(Color.FromArgb(20, 255, 255, 255)))
+                {
+                    g.FillPath(brush, path);
+                }
+                // Dashed border to communicate "click to set"
+                using (var path2 = RoundedPanel.RoundedRect(rect, 12))
+                using (var pen = new Pen(Color.FromArgb(120, 200, 200, 200), 1.4f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash, DashPattern = new float[] { 3f, 3f } })
+                {
+                    g.DrawPath(pen, path2);
+                }
+                // Centred "+" glyph
+                var plusColor = Color.FromArgb(170, 220, 220, 220);
+                using (var pen = new Pen(plusColor, 1.6f))
+                {
+                    int cx = Width / 2;
+                    int cy = Height / 2;
+                    int arm = Math.Min(Width, Height) / 6;
+                    g.DrawLine(pen, cx - arm, cy, cx + arm, cy);
+                    g.DrawLine(pen, cx, cy - arm, cx, cy + arm);
+                }
+                if (IsActive)
+                {
+                    using (var path3 = RoundedPanel.RoundedRect(rect, 12))
+                    using (var pen = new Pen(SwatchTheme.Accent2, 2))
+                    {
+                        g.DrawPath(pen, path3);
+                    }
+                }
+                return;
+            }
+
             using (var path = RoundedPanel.RoundedRect(rect, 12))
             using (var brush = new LinearGradientBrush(rect, SwatchTheme.Accent2, SwatchTheme.Panel2, 135f))
             {
@@ -4968,9 +5244,10 @@ namespace CdJsonModManager
 
     internal sealed class CheckGridRow : RoundedPanel
     {
-        private readonly Label labelControl;
         private readonly BadgePill badgeControl;
-        private readonly DotPanel dot;
+        private readonly Font labelFont = new Font("Consolas", 9.5f);
+        private string labelText;
+        private Color dotColor = Color.FromArgb(140, 140, 140);
 
         public CheckGridRow(string label, string badge, BadgeKind kind)
         {
@@ -4979,47 +5256,58 @@ namespace CdJsonModManager
             GradientTopOverride = Color.FromArgb(36, 0, 0, 0);
             GradientBottomOverride = Color.FromArgb(58, 0, 0, 0);
             BorderColor = Color.FromArgb(28, 255, 255, 255);
-            Padding = new Padding(11, 6, 11, 6);
+            Padding = new Padding(11, 0, 11, 0);
             Height = 38;
+            DoubleBuffered = true;
+            labelText = label;
 
-            var grid = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 3,
-                RowCount = 1,
-                BackColor = Color.Transparent
-            };
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 16));
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            Controls.Add(grid);
-
-            dot = new DotPanel { Width = 10, Height = 10, BackColor = Color.Transparent, Anchor = AnchorStyles.None, Margin = new Padding(0) };
-            grid.Controls.Add(dot, 0, 0);
-
-            labelControl = new Label
-            {
-                Text = label,
-                Dock = DockStyle.Fill,
-                Font = new Font("Consolas", 9),
-                BackColor = Color.Transparent,
-                ForeColor = Color.FromArgb(244, 234, 209),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 0, 0, 0)
-            };
-            grid.Controls.Add(labelControl, 1, 0);
-
+            // Badge is the only child control — everything else is painted in OnPaint so the dot
+            // and label always sit on the row's exact vertical centre, regardless of font metrics.
             badgeControl = new BadgePill
             {
-                Width = 100,
+                Width = 78,
                 Height = 22,
-                Anchor = AnchorStyles.None,
-                Margin = new Padding(0)
+                Anchor = AnchorStyles.Right | AnchorStyles.Top
             };
-            grid.Controls.Add(badgeControl, 2, 0);
+            // Position badge against the right edge, vertically centred.
+            badgeControl.Location = new Point(0, 0); // updated in OnLayout
+            Controls.Add(badgeControl);
 
             SetState(badge, kind);
+            Resize += (s, e) => PositionBadge();
+            PositionBadge();
+        }
+
+        private void PositionBadge()
+        {
+            int x = Width - Padding.Right - badgeControl.Width;
+            int y = (Height - badgeControl.Height) / 2;
+            badgeControl.Location = new Point(x, y);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e); // draw the rounded background
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            int dotSize = 12;
+            int dotX = Padding.Left;
+            int dotY = (Height - dotSize) / 2;
+            // Glow + filled dot.
+            using (var glow = new SolidBrush(Color.FromArgb(80, dotColor)))
+                g.FillEllipse(glow, dotX - 1, dotY - 1, dotSize + 2, dotSize + 2);
+            using (var b = new SolidBrush(dotColor))
+                g.FillEllipse(b, dotX + 1, dotY + 1, dotSize - 2, dotSize - 2);
+
+            // Label — painted at the row's exact vertical centre so it always lines up with the dot.
+            int textLeft = dotX + dotSize + 8;
+            int textRight = badgeControl.Left - 6;
+            var textRect = new Rectangle(textLeft, 0, Math.Max(20, textRight - textLeft), Height);
+            TextRenderer.DrawText(g, labelText ?? "", labelFont, textRect,
+                Color.FromArgb(244, 234, 209),
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
         }
 
         public void SetState(string text, BadgeKind kind)
@@ -5027,12 +5315,12 @@ namespace CdJsonModManager
             badgeControl.SetState(text, kind);
             switch (kind)
             {
-                case BadgeKind.Ok: dot.Color = Color.FromArgb(101, 197, 134); break;
-                case BadgeKind.Warn: dot.Color = Color.FromArgb(216, 166, 64); break;
-                case BadgeKind.Bad: dot.Color = Color.FromArgb(216, 92, 76); break;
-                default: dot.Color = Color.FromArgb(140, 140, 140); break;
+                case BadgeKind.Ok: dotColor = Color.FromArgb(101, 197, 134); break;
+                case BadgeKind.Warn: dotColor = Color.FromArgb(216, 166, 64); break;
+                case BadgeKind.Bad: dotColor = Color.FromArgb(216, 92, 76); break;
+                default: dotColor = Color.FromArgb(140, 140, 140); break;
             }
-            dot.Invalidate();
+            Invalidate();
         }
     }
 
@@ -7534,25 +7822,45 @@ namespace CdJsonModManager
         public static Theme Frost() { return Make("Frost", "#081018", "#101821", "#152334", "#e9f7ff", "#91a9ba", "#8cc7dd", "#bfefff"); }
         public static Theme Forest() { return Make("Forest", "#091109", "#101910", "#182718", "#eef5d8", "#98ad83", "#c0b15e", "#ece18c"); }
 
-        // Custom theme: takes a single accent colour and derives the rest from a dark Gilded-style base.
-        // Same shape as the built-ins so ApplyTheme/StyleListView/etc. don't need branching.
+        // Custom theme: every palette slot is derived from the chosen accent so the whole UI shifts,
+        // not just borders. Mirrors the built-ins (Frost/Forest also tint their backgrounds).
         public static Theme Custom(Color accent)
         {
-            var c = accent;
-            // Lighten the accent by ~15% for the secondary highlight.
-            int la = Math.Min(255, (int)(c.R + (255 - c.R) * 0.30));
-            int lb = Math.Min(255, (int)(c.G + (255 - c.G) * 0.30));
-            int lc = Math.Min(255, (int)(c.B + (255 - c.B) * 0.30));
-            var accent2 = Color.FromArgb(la, lb, lc);
+            // Linear blend toward black for backgrounds, toward white for text.
+            // Gives the panel a subtle hue-tinted dark instead of pure black.
+            Color mix(Color a, Color b, float t) => Color.FromArgb(
+                Math.Max(0, Math.Min(255, (int)(a.R * (1 - t) + b.R * t))),
+                Math.Max(0, Math.Min(255, (int)(a.G * (1 - t) + b.G * t))),
+                Math.Max(0, Math.Min(255, (int)(a.B * (1 - t) + b.B * t))));
+
+            var black = Color.FromArgb(0, 0, 0);
+            var white = Color.FromArgb(255, 255, 255);
+            var midGray = Color.FromArgb(140, 140, 140);
+
+            var bg = mix(accent, black, 0.94f);     // ~6% accent tint, near-black
+            var panel = mix(accent, black, 0.91f);  // ~9%
+            var panel2 = mix(accent, black, 0.86f); // ~14%
+            var text = mix(accent, white, 0.85f);   // bright, slight accent tint
+            var muted = mix(accent, midGray, 0.55f);// readable secondary text
+
+            // Cap background luminance so a chosen pastel/yellow doesn't break readability.
+            int lum(Color c) => c.R + c.G + c.B;
+            if (lum(bg) > 60) bg = mix(bg, black, 0.6f);
+            if (lum(panel) > 90) panel = mix(panel, black, 0.5f);
+            if (lum(panel2) > 130) panel2 = mix(panel2, black, 0.4f);
+
+            // Accent2 is the brighter highlight used for active tab text, top-bar pills, etc.
+            var accent2 = mix(accent, white, 0.30f);
+
             return new Theme
             {
                 Name = "Custom",
-                Background = ColorTranslator.FromHtml("#0c0d0a"),
-                Panel = ColorTranslator.FromHtml("#171812"),
-                Panel2 = ColorTranslator.FromHtml("#202115"),
-                Text = ColorTranslator.FromHtml("#f4ead1"),
-                Muted = ColorTranslator.FromHtml("#a99d7c"),
-                Accent = c,
+                Background = bg,
+                Panel = panel,
+                Panel2 = panel2,
+                Text = text,
+                Muted = muted,
+                Accent = accent,
                 Accent2 = accent2
             };
         }

@@ -40,3 +40,8 @@ docs/*_PRIVATE*
 
 docs/RELEASE_INSTRUCTIONS.md
 docs/logo.png
+
+# Agent handoff briefs — kept locally in cd_json_mod_manager_dotnet/, never committed to the public repo
+AGENT_HANDOFF.md
+*_HANDOFF.md
+src/AGENT_HANDOFF.md
