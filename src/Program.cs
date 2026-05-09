@@ -99,6 +99,7 @@ namespace CdJsonModManager
         private readonly Dictionary<string, string> groupBy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, RoundedPanel> presetCards = new Dictionary<string, RoundedPanel>(StringComparer.OrdinalIgnoreCase);
         private string activePreset = "";
+        private string focusedModPath = "";
         private readonly Dictionary<string, RoundedPanel> modCards = new Dictionary<string, RoundedPanel>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, NexusLink> nexusLinks = new Dictionary<string, NexusLink>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Pill> modCardPills = new Dictionary<string, Pill>(StringComparer.OrdinalIgnoreCase);
@@ -964,7 +965,7 @@ namespace CdJsonModManager
             cardsRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             cardsRow.Controls.Add(BuildAsiCard("ASI Loader",
-                "Detects Ultimate ASI Loader /  in bin64. Install or remove the loader separately from mods.",
+                "Detects Ultimate ASI Loader / CDUMM in bin64. Install or remove the loader separately from mods.",
                 ("Detect", GradientButton.Style.Safe, (Action)RefreshAsi),
                 ("Open bin64", GradientButton.Style.Default, (Action)(() => { if (!string.IsNullOrEmpty(gamePath)) OpenFolder(Path.Combine(gamePath, "bin64")); }))
             ), 0, 0);
@@ -2168,6 +2169,8 @@ namespace CdJsonModManager
             modCards.Clear();
             modCardPills.Clear();
             nexusLinks.Clear();
+            // Preserve focus across reload only if the focused mod's file still exists
+            if (!string.IsNullOrEmpty(focusedModPath) && !File.Exists(focusedModPath)) focusedModPath = "";
             if (modCardsHost == null) return;
             modCardsHost.Controls.Clear();
 
@@ -2325,17 +2328,18 @@ namespace CdJsonModManager
                 nameLabel.ContextMenuStrip = menu;
                 metaLabel.ContextMenuStrip = menu;
 
-                MouseEventHandler toggleHandler = (sender, args) =>
+                MouseEventHandler focusHandler = (sender, args) =>
                 {
                     if (args.Button != MouseButtons.Left) return;
-                    check.Checked = !check.Checked;
+                    FocusMod(capturedMod);
                 };
-                card.MouseClick += toggleHandler;
-                stack.MouseClick += toggleHandler;
-                titleRow.MouseClick += toggleHandler;
-                nameLabel.MouseClick += toggleHandler;
-                metaLabel.MouseClick += toggleHandler;
-                tag.MouseClick += toggleHandler;
+                card.MouseClick += focusHandler;
+                stack.MouseClick += focusHandler;
+                titleRow.MouseClick += focusHandler;
+                nameLabel.MouseClick += focusHandler;
+                metaLabel.MouseClick += focusHandler;
+                tag.MouseClick += focusHandler;
+                checkVisible.Click += (s, e) => FocusMod(capturedMod);
                 check.CheckedChanged += (sender, args) =>
                 {
                     UpdateModCardVisual(capturedMod);
@@ -2497,11 +2501,19 @@ namespace CdJsonModManager
             if (!modCards.ContainsKey(mod.Path) || !activeBoxes.ContainsKey(mod.Path)) return;
             var card = modCards[mod.Path];
             var on = activeBoxes[mod.Path].Checked;
+            var isFocused = string.Equals(focusedModPath, mod.Path, StringComparison.OrdinalIgnoreCase);
             if (on)
             {
                 var a = currentTheme.Accent;
                 card.GradientTopOverride = Color.FromArgb(160, a.R, a.G, a.B);
                 card.GradientBottomOverride = Color.FromArgb(220, Math.Min(60, a.R / 4), Math.Min(40, a.G / 4), Math.Min(20, a.B / 4));
+                card.BorderColor = currentTheme.Accent2;
+                card.BorderWidth = isFocused ? 3 : 2;
+            }
+            else if (isFocused)
+            {
+                card.GradientTopOverride = Color.FromArgb(70, currentTheme.Accent);
+                card.GradientBottomOverride = Color.FromArgb(140, 0, 0, 0);
                 card.BorderColor = currentTheme.Accent2;
                 card.BorderWidth = 2;
             }
@@ -2566,6 +2578,27 @@ namespace CdJsonModManager
             return false;
         }
 
+        private void FocusMod(JsonMod mod)
+        {
+            if (mod == null) return;
+            var prev = focusedModPath;
+            focusedModPath = mod.Path;
+            // Repaint the previously- and now-focused cards so the ring updates
+            if (!string.IsNullOrEmpty(prev) && modCards.ContainsKey(prev))
+            {
+                var prevMod = mods.FirstOrDefault(m => string.Equals(m.Path, prev, StringComparison.OrdinalIgnoreCase));
+                if (prevMod != null) UpdateModCardVisual(prevMod);
+            }
+            UpdateModCardVisual(mod);
+            RebuildPresetRail();
+        }
+
+        private JsonMod FocusedMod()
+        {
+            if (string.IsNullOrEmpty(focusedModPath)) return null;
+            return mods.FirstOrDefault(m => string.Equals(m.Path, focusedModPath, StringComparison.OrdinalIgnoreCase));
+        }
+
         private static bool TryParsePercent(string s, out double v)
         {
             v = 0;
@@ -2580,15 +2613,14 @@ namespace CdJsonModManager
             presetRailHost.Controls.Clear();
             presetCards.Clear();
 
-            var anyActive = AnyModActive();
-            var groups = ComputeGroups(anyActive);
-            if (groups.Count == 0)
+            var focused = FocusedMod();
+            if (focused == null)
             {
                 var empty = new Label
                 {
                     Text = mods.Count == 0
                         ? "Add JSON mods to see presets here."
-                        : (anyActive ? "Selected mods have no preset groups.\r\nTheir patches will all apply directly." : "Select one or more mods on the left\r\nto see their preset groups here."),
+                        : "Click a mod on the left\r\nto see its preset groups.",
                     Dock = DockStyle.Top,
                     Font = new Font("Consolas", 8.5f),
                     ForeColor = Color.FromArgb(112, 104, 79),
@@ -2600,26 +2632,54 @@ namespace CdJsonModManager
                 return;
             }
 
-            if (string.IsNullOrEmpty(activePreset) || !groups.Contains(activePreset, StringComparer.OrdinalIgnoreCase))
+            // Header: which mod's presets we're showing
+            var header = new Label
             {
-                activePreset = groups[0];
+                Text = focused.Name.ToUpperInvariant(),
+                Dock = DockStyle.Top,
+                AutoSize = false,
+                Height = 26,
+                Font = new Font("Consolas", 8.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(244, 199, 103),
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.BottomLeft,
+                Padding = new Padding(2, 0, 0, 4),
+                Margin = new Padding(0, 0, 0, 4)
+            };
+            presetRailHost.Controls.Add(header);
+
+            var groups = focused.Groups ?? new List<string>();
+            // Sort by parsed % when applicable, else lexicographic
+            groups = groups.OrderBy(g => g, Comparer<string>.Create((a, b) =>
+            {
+                double pa, pb;
+                bool ap = TryParsePercent(a, out pa);
+                bool bp = TryParsePercent(b, out pb);
+                if (ap && bp) return pa.CompareTo(pb);
+                if (ap) return -1;
+                if (bp) return 1;
+                return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+            })).ToList();
+
+            if (groups.Count == 0 || (groups.Count == 1 && string.Equals(groups[0], "All", StringComparison.OrdinalIgnoreCase)))
+            {
+                presetRailHost.Controls.Add(new Label
+                {
+                    Text = "This mod has no preset variants.\r\nIts " + focused.Changes.Count + " patch" + (focused.Changes.Count == 1 ? "" : "es") + "\r\nwill all apply when active.",
+                    Dock = DockStyle.Top,
+                    Font = new Font("Consolas", 8.5f),
+                    ForeColor = Color.FromArgb(112, 104, 79),
+                    BackColor = Color.Transparent,
+                    AutoSize = true,
+                    Padding = new Padding(8, 8, 8, 8)
+                });
+                return;
             }
 
             foreach (var g in groups)
             {
                 var captured = g;
-                int modCount = 0;
-                int patchCount = 0;
-                foreach (var m in mods)
-                {
-                    if (anyActive)
-                    {
-                        if (!activeBoxes.ContainsKey(m.Path) || !activeBoxes[m.Path].Checked) continue;
-                    }
-                    if (!m.Groups.Contains(g, StringComparer.OrdinalIgnoreCase)) continue;
-                    modCount++;
-                    patchCount += m.Changes.Count(c => string.Equals(c.Group, g, StringComparison.OrdinalIgnoreCase));
-                }
+                int patchCount = focused.Changes.Count(c => string.Equals(c.Group, g, StringComparison.OrdinalIgnoreCase));
 
                 var card = new RoundedPanel
                 {
@@ -2660,7 +2720,7 @@ namespace CdJsonModManager
 
                 var subLabel = new Label
                 {
-                    Text = patchCount + " patch" + (patchCount == 1 ? "" : "es") + " across " + modCount + " mod" + (modCount == 1 ? "" : "s"),
+                    Text = patchCount + " patch" + (patchCount == 1 ? "" : "es"),
                     Dock = DockStyle.Fill,
                     Font = new Font("Consolas", 8f),
                     BackColor = Color.Transparent,
@@ -2684,14 +2744,11 @@ namespace CdJsonModManager
 
         private void SelectPreset(string preset)
         {
+            var focused = FocusedMod();
+            if (focused == null) return;
+            if (!focused.Groups.Contains(preset, StringComparer.OrdinalIgnoreCase)) return;
+            groupBy[focused.Path] = focused.Groups.First(x => string.Equals(x, preset, StringComparison.OrdinalIgnoreCase));
             activePreset = preset;
-            foreach (var m in mods)
-            {
-                if (m.Groups.Contains(preset, StringComparer.OrdinalIgnoreCase))
-                {
-                    groupBy[m.Path] = m.Groups.First(x => string.Equals(x, preset, StringComparison.OrdinalIgnoreCase));
-                }
-            }
             config["activePreset"] = preset;
             UpdatePresetVisuals();
             PersistSelectionAndRefresh();
@@ -2699,11 +2756,13 @@ namespace CdJsonModManager
 
         private void UpdatePresetVisuals()
         {
+            var focused = FocusedMod();
+            var selected = focused != null && groupBy.ContainsKey(focused.Path) ? groupBy[focused.Path] : "";
             foreach (var pair in presetCards)
             {
-                var isActive = string.Equals(pair.Key, activePreset, StringComparison.OrdinalIgnoreCase);
+                var isSelectedForFocused = !string.IsNullOrEmpty(selected) && string.Equals(pair.Key, selected, StringComparison.OrdinalIgnoreCase);
                 var c = pair.Value;
-                if (isActive)
+                if (isSelectedForFocused)
                 {
                     c.GradientTopOverride = Color.FromArgb(60, 101, 197, 134);
                     c.GradientBottomOverride = Color.FromArgb(110, 0, 0, 0);
@@ -2759,7 +2818,7 @@ namespace CdJsonModManager
             config["selectedGroups"] = groups;
             SaveConfig(config);
             File.WriteAllText(Path.Combine(enabledDir, "_load_order.json"), json.Serialize(active.ToArray()), Encoding.UTF8);
-            RebuildPresetRail();
+            UpdatePresetVisuals();
             RefreshPatchList();
             UpdateStatusPills();
             UpdateBottomSummary();
