@@ -2781,7 +2781,9 @@ namespace CdJsonModManager
         private void RefreshPatchList()
         {
             if (patchList == null) return;
-            patchList.Items.Clear();
+
+            // Pre-build all items off the UI hot path, then commit once.
+            var pending = new List<ListViewItem>(256);
             foreach (var mod in mods)
             {
                 if (!activeBoxes.ContainsKey(mod.Path) || !activeBoxes[mod.Path].Checked) continue;
@@ -2792,8 +2794,19 @@ namespace CdJsonModManager
                     var item = new ListViewItem(label);
                     var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
                     item.SubItems.Add(fileName + "  +0x" + change.Offset.ToString("X"));
-                    patchList.Items.Add(item);
+                    pending.Add(item);
                 }
+            }
+
+            patchList.BeginUpdate();
+            try
+            {
+                patchList.Items.Clear();
+                if (pending.Count > 0) patchList.Items.AddRange(pending.ToArray());
+            }
+            finally
+            {
+                patchList.EndUpdate();
             }
 
             if (workspaceCounter != null)
