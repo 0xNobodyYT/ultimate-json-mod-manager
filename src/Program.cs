@@ -420,10 +420,10 @@ namespace CdJsonModManager
                 RowCount = 1,
                 BackColor = Color.Transparent
             };
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
+            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            var mark = new BrandMark { Width = 52, Height = 52, Anchor = AnchorStyles.Left, Margin = new Padding(0, 8, 14, 8) };
+            var mark = new BrandMark { Width = 64, Height = 64, Anchor = AnchorStyles.Left, Margin = new Padding(0, 4, 12, 4) };
             brandRow.Controls.Add(mark, 0, 0);
 
             var titleStack = new TableLayoutPanel
@@ -554,13 +554,12 @@ namespace CdJsonModManager
             var dryRun = NewGradientButton("Verify Bytes", GradientButton.Style.Default, 130, RunValidation);
             tipsHost.SetToolTip(dryRun, "Verify selected mods against the current game files without changing anything. Confirms each patch's 'original' bytes match what's actually in your installed game.");
             var apply = NewGradientButton("Apply Mods", GradientButton.Style.Primary, 150, ApplyOverlayStub);
-            tipsHost.SetToolTip(apply, "Apply selected mods to your game by writing modded copies as loose files. Original archives are never touched. Click 'Uninstall Mods' to fully revert.");
-            var uninstall = NewGradientButton("Uninstall Mods", GradientButton.Style.Default, 130, DisableAllMods);
-            var restore = NewGradientButton("Restore Backup", GradientButton.Style.Danger, 140, RestorePapgtBackup);
+            tipsHost.SetToolTip(apply, "Apply selected mods. Modded bytes are appended to the .paz archive (original data never overwritten) and the .pamt index is patched to point at them. Click 'Uninstall Mods' to fully revert.");
+            var uninstall = NewGradientButton("Uninstall Mods", GradientButton.Style.Danger, 140, DisableAllMods);
+            tipsHost.SetToolTip(uninstall, "Revert all mods: restores the .pamt from backup and truncates each .paz back to its pre-apply length. This is the only revert button you need.");
             actions.Controls.Add(dryRun);
             actions.Controls.Add(apply);
             actions.Controls.Add(uninstall);
-            actions.Controls.Add(restore);
             grid.Controls.Add(actions, 1, 0);
 
             return bar;
@@ -1933,7 +1932,7 @@ namespace CdJsonModManager
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             panel.Controls.Add(layout);
 
-            layout.Controls.Add(BuildPanelHeader("INSPECTOR", "Dry run ready", out inspectorCounter), 0, 0);
+            layout.Controls.Add(BuildPanelHeader("INSPECTOR", "Verify ready", out inspectorCounter), 0, 0);
 
             var checkHost = new TableLayoutPanel
             {
@@ -3216,7 +3215,7 @@ namespace CdJsonModManager
                 return;
             }
 
-            Log("Starting dry-run validation...");
+            Log("Starting byte-guard verification...");
             var checkedCount = 0;
             var alreadyPatched = 0;
             var issues = new List<string>();
@@ -3265,14 +3264,14 @@ namespace CdJsonModManager
 
             if (issues.Count == 0)
             {
-                Log("Dry run passed.");
-                MessageBox.Show("Selected patch guards match the extracted game data.", "Dry run passed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Log("Verify passed.");
+                MessageBox.Show("Selected patch guards match the extracted game data.", "Verify passed", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
                 foreach (var issue in issues.Take(80)) Log(issue);
                 if (issues.Count > 80) Log("... plus " + (issues.Count - 80) + " more issue(s).");
-                MessageBox.Show("Some original bytes did not match. Check the inspector log.", "Dry run mismatch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Some original bytes did not match. Check the inspector log.", "Verify mismatch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -3668,7 +3667,7 @@ namespace CdJsonModManager
                 "This will write modded copies of " + byGameFile.Count + " game file(s) into your Crimson Desert folder as loose files (the engine reads loose files first).\r\n\r\n" +
                 "• Original game archives are NEVER modified.\r\n" +
                 "• Any pre-existing file at a target path is backed up first.\r\n" +
-                "• Click 'Revert Mods' (or use the Restore Backup button) to undo.\r\n\r\n" +
+                "• Click 'Uninstall Mods' to fully revert.\r\n\r\n" +
                 "Continue?",
                 "Apply mods?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (pre != DialogResult.Yes) return;
@@ -4307,6 +4306,39 @@ namespace CdJsonModManager
     {
         public string Letters { get; set; } = "UJ";
 
+        // Loaded once at startup. If logo.png sits next to the exe (or as an
+        // embedded resource named "logo.png"), it is rendered into the brand
+        // tile. Otherwise we fall back to the gold "UJ" gradient tile.
+        private static readonly Image logoImage = LoadLogoImage();
+
+        private static Image LoadLogoImage()
+        {
+            try
+            {
+                var sidecar = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logo.png");
+                if (File.Exists(sidecar))
+                {
+                    using (var fs = File.OpenRead(sidecar))
+                    {
+                        return Image.FromStream(new MemoryStream(File.ReadAllBytes(sidecar)));
+                    }
+                }
+                var asm = Assembly.GetExecutingAssembly();
+                foreach (var name in asm.GetManifestResourceNames())
+                {
+                    if (name.EndsWith("logo.png", StringComparison.OrdinalIgnoreCase))
+                    {
+                        using (var stream = asm.GetManifestResourceStream(name))
+                        {
+                            if (stream != null) return Image.FromStream(stream);
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
         public BrandMark()
         {
             SetStyle(ControlStyles.OptimizedDoubleBuffer
@@ -4323,6 +4355,18 @@ namespace CdJsonModManager
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var rect = new Rectangle(0, 0, Math.Max(0, Width - 1), Math.Max(0, Height - 1));
+            if (logoImage != null)
+            {
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                using (var path = RoundedPanel.RoundedRect(rect, Math.Max(6, Math.Min(rect.Width, rect.Height) / 6)))
+                {
+                    g.SetClip(path);
+                    g.DrawImage(logoImage, rect);
+                    g.ResetClip();
+                }
+                return;
+            }
             using (var path = RoundedPanel.RoundedRect(rect, 14))
             using (var brush = new LinearGradientBrush(rect, Color.FromArgb(244, 199, 103), Color.FromArgb(159, 103, 36), 135f))
             using (var border = new Pen(Color.FromArgb(120, 216, 166, 64), 1))
