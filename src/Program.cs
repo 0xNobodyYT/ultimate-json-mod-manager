@@ -554,7 +554,7 @@ namespace CdJsonModManager
             var dryRun = NewGradientButton("Verify Bytes", GradientButton.Style.Default, 130, RunValidation);
             tipsHost.SetToolTip(dryRun, "Verify selected mods against the current game files without changing anything. Confirms each patch's 'original' bytes match what's actually in your installed game.");
             var apply = NewGradientButton("Apply Mods", GradientButton.Style.Primary, 150, ApplyOverlayStub);
-            tipsHost.SetToolTip(apply, "Apply selected mods to your game. (Coming soon — currently a preview only.)");
+            tipsHost.SetToolTip(apply, "Apply selected mods to your game by writing modded copies as loose files. Original archives are never touched. Click 'Uninstall Mods' to fully revert.");
             var uninstall = NewGradientButton("Uninstall Mods", GradientButton.Style.Default, 130, DisableAllMods);
             var restore = NewGradientButton("Restore Backup", GradientButton.Style.Danger, 140, RestorePapgtBackup);
             actions.Controls.Add(dryRun);
@@ -2868,6 +2868,8 @@ namespace CdJsonModManager
 
         private void DisableAllMods()
         {
+            // Revert any loose-file writes first so the game folder is clean.
+            try { RevertLooseFileApply(); } catch (Exception ex) { Log("Revert during uninstall: " + ex.Message); }
             foreach (var box in activeBoxes.Values)
             {
                 box.Checked = false;
@@ -3246,9 +3248,297 @@ namespace CdJsonModManager
             }
         }
 
+        // ---------------------------------------------------------- APPLY MODS (loose-file probe)
+
+        // Probe approach: write the decompressed, patched files at their archive-relative
+        // paths inside the game folder. Many Pearl Abyss engines read loose files with priority
+        // over archived ones. If Crimson Desert behaves that way, the modded bytes take effect
+        // without ever touching the original .paz archives.
+        //
+        // SAFETY:
+        // - We never modify original game archives.
+        // - If the target loose-file path already has a real file, we back it up to
+        //   <game>\_ujmm_probe_backups\<archive_path>.bak before overwriting.
+        // - Every file written is recorded in backups\loose_manifest.json so Revert restores
+        //   the exact pre-apply state.
+
+        private const string LooseManifestName = "loose_manifest.json";
+        private const string ProbeBackupsDirName = "_ujmm_probe_backups";
+
+        private string LooseManifestPath()
+        {
+            return Path.Combine(backupsDir, LooseManifestName);
+        }
+
+        private string ProbeBackupsRoot()
+        {
+            return IsGameFolder(gamePath) ? Path.Combine(gamePath, ProbeBackupsDirName) : "";
+        }
+
         private void ApplyOverlayStub()
         {
-            MessageBox.Show("Overlay writing is intentionally disabled until repack/register is implemented and tested.", "Not enabled");
+            ApplyAsLooseFiles();
+        }
+
+        private void ApplyAsLooseFiles()
+        {
+            if (!IsGameFolder(gamePath))
+            {
+                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            var selected = mods.Where(m => activeBoxes.ContainsKey(m.Path) && activeBoxes[m.Path].Checked).ToList();
+            if (selected.Count == 0)
+            {
+                MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Collect (game_file → list of changes) across all active mods using each mod's preset.
+            var byGameFile = new Dictionary<string, List<PatchChange>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var mod in selected)
+            {
+                var group = GroupFor(mod);
+                foreach (var c in mod.ChangesForGroup(group))
+                {
+                    if (string.IsNullOrEmpty(c.GameFile)) continue;
+                    if (!byGameFile.ContainsKey(c.GameFile)) byGameFile[c.GameFile] = new List<PatchChange>();
+                    byGameFile[c.GameFile].Add(c);
+                }
+            }
+            if (byGameFile.Count == 0)
+            {
+                MessageBox.Show("Selected mods have no patches with a target game_file.", "Nothing to apply", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var pre = MessageBox.Show(
+                "This will write modded copies of " + byGameFile.Count + " game file(s) into your Crimson Desert folder as loose files (the engine reads loose files first).\r\n\r\n" +
+                "• Original game archives are NEVER modified.\r\n" +
+                "• Any pre-existing file at a target path is backed up first.\r\n" +
+                "• Click 'Revert Mods' (or use the Restore Backup button) to undo.\r\n\r\n" +
+                "Continue?",
+                "Apply mods?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (pre != DialogResult.Yes) return;
+
+            // Build the work list: for each logical game_file, find the actual archive entry path,
+            // extract bytes (decompressed), apply patches in-memory.
+            var work = new List<Tuple<string, byte[], int, int>>(); // (archivePath, patchedBytes, mismatched, applied)
+            foreach (var pair in byGameFile)
+            {
+                var logicalFile = pair.Key;
+                var changes = pair.Value;
+
+                // Trigger extraction (reuses cache if already there)
+                var cachedPath = ArchiveExtractor.Extract(gamePath, logicalFile, cacheDir, Log);
+                if (cachedPath == null || !File.Exists(cachedPath))
+                {
+                    Log("Apply: could not extract " + logicalFile + ". Skipped.");
+                    continue;
+                }
+                // Derive the archive-internal path (relative to cache root) — that's where we'll write loose
+                var archiveRelPath = MakeRelative(cacheDir, cachedPath);
+                if (string.IsNullOrEmpty(archiveRelPath))
+                {
+                    Log("Apply: could not derive archive path for " + cachedPath);
+                    continue;
+                }
+
+                var bytes = File.ReadAllBytes(cachedPath);
+                int applied = 0, mismatched = 0;
+                foreach (var c in changes)
+                {
+                    var origBytes = HexToBytes(c.Original);
+                    var newBytes = HexToBytes(c.Patched);
+                    if (c.Offset < 0 || c.Offset + origBytes.Length > bytes.Length)
+                    {
+                        Log("Apply: offset out of range in " + logicalFile + ": " + c.Label);
+                        mismatched++;
+                        continue;
+                    }
+                    // Confirm originals match before overwriting (guards against stale offsets)
+                    bool ok = true;
+                    for (int i = 0; i < origBytes.Length; i++)
+                    {
+                        if (bytes[c.Offset + i] != origBytes[i]) { ok = false; break; }
+                    }
+                    if (!ok)
+                    {
+                        // Allow already-patched (idempotent re-apply)
+                        bool already = true;
+                        for (int i = 0; i < newBytes.Length; i++)
+                        {
+                            if (bytes[c.Offset + i] != newBytes[i]) { already = false; break; }
+                        }
+                        if (!already)
+                        {
+                            mismatched++;
+                            Log("Apply: byte guard failed for " + c.Label);
+                            continue;
+                        }
+                        applied++;
+                        continue;
+                    }
+                    Buffer.BlockCopy(newBytes, 0, bytes, c.Offset, newBytes.Length);
+                    applied++;
+                }
+
+                if (mismatched > 0 && applied == 0)
+                {
+                    Log("Apply: skipping " + logicalFile + " entirely — every patch failed its byte guard.");
+                    continue;
+                }
+                work.Add(Tuple.Create(archiveRelPath, bytes, mismatched, applied));
+                Log("Apply: prepared " + logicalFile + " — " + applied + " patches applied" + (mismatched > 0 ? ", " + mismatched + " skipped" : ""));
+            }
+
+            if (work.Count == 0)
+            {
+                MessageBox.Show("Nothing to apply (no files prepared cleanly). Run Verify Bytes to diagnose.", "Apply aborted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Load existing manifest so we accumulate across applies.
+            var manifest = LoadLooseManifest();
+
+            int written = 0, backedUp = 0;
+            var probeBackupsRoot = ProbeBackupsRoot();
+            foreach (var w in work)
+            {
+                var archiveRelPath = w.Item1.Replace('\\', '/');
+                var patched = w.Item2;
+                var target = Path.Combine(gamePath, archiveRelPath.Replace('/', Path.DirectorySeparatorChar));
+
+                try
+                {
+                    var dir = Path.GetDirectoryName(target);
+                    if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+                    // If a real file exists at the target, back it up first.
+                    string backupPath = "";
+                    if (File.Exists(target))
+                    {
+                        backupPath = Path.Combine(probeBackupsRoot, archiveRelPath.Replace('/', Path.DirectorySeparatorChar) + ".bak");
+                        Directory.CreateDirectory(Path.GetDirectoryName(backupPath));
+                        if (!File.Exists(backupPath)) File.Copy(target, backupPath, false);
+                        backedUp++;
+                    }
+
+                    File.WriteAllBytes(target, patched);
+                    written++;
+
+                    // Manifest entry
+                    var entry = new Dictionary<string, object>
+                    {
+                        ["target"] = target,
+                        ["archive_path"] = archiveRelPath,
+                        ["had_existing"] = !string.IsNullOrEmpty(backupPath),
+                        ["backup"] = backupPath ?? ""
+                    };
+                    manifest[target] = entry;
+                }
+                catch (Exception ex)
+                {
+                    Log("Apply: write failed for " + target + ": " + ex.Message);
+                }
+            }
+
+            SaveLooseManifest(manifest);
+            Log("Apply: wrote " + written + " loose file(s)" + (backedUp > 0 ? " (backed up " + backedUp + " pre-existing)" : ""));
+
+            MessageBox.Show(
+                "Wrote " + written + " modded file(s) to your game folder as loose files.\r\n" +
+                (backedUp > 0 ? backedUp + " pre-existing file(s) were backed up to <game>\\_ujmm_probe_backups\\.\r\n" : "") +
+                "\r\nLaunch Crimson Desert and test the modded behavior.\r\n" +
+                "If the changes take effect → loose-file overlay works.\r\n" +
+                "If they don't → click 'Uninstall Mods' to revert and we'll try the next approach.",
+                "Mods applied (probe)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void RevertLooseFileApply()
+        {
+            var manifest = LoadLooseManifest();
+            if (manifest.Count == 0) return;
+            int restored = 0, deleted = 0, errors = 0;
+            foreach (var pair in manifest.ToList())
+            {
+                var entry = pair.Value as Dictionary<string, object>;
+                if (entry == null) continue;
+                var target = Convert.ToString(entry.ContainsKey("target") ? entry["target"] : pair.Key);
+                bool hadExisting = entry.ContainsKey("had_existing") && entry["had_existing"] is bool && (bool)entry["had_existing"];
+                var backup = entry.ContainsKey("backup") ? Convert.ToString(entry["backup"]) : "";
+                try
+                {
+                    if (hadExisting && !string.IsNullOrEmpty(backup) && File.Exists(backup))
+                    {
+                        File.Copy(backup, target, true);
+                        try { File.Delete(backup); } catch { }
+                        restored++;
+                    }
+                    else if (File.Exists(target))
+                    {
+                        File.Delete(target);
+                        deleted++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors++;
+                    Log("Revert: failed for " + target + ": " + ex.Message);
+                }
+            }
+            // Clean up the probe-backups dir if it's empty
+            try
+            {
+                var root = ProbeBackupsRoot();
+                if (Directory.Exists(root))
+                {
+                    if (Directory.GetFiles(root, "*", SearchOption.AllDirectories).Length == 0)
+                    {
+                        Directory.Delete(root, true);
+                    }
+                }
+            }
+            catch { }
+            try { File.Delete(LooseManifestPath()); } catch { }
+            Log("Revert: restored " + restored + ", deleted " + deleted + (errors > 0 ? ", " + errors + " error(s)" : "") + ".");
+        }
+
+        private Dictionary<string, object> LoadLooseManifest()
+        {
+            try
+            {
+                var p = LooseManifestPath();
+                if (!File.Exists(p)) return new Dictionary<string, object>();
+                var d = json.DeserializeObject(File.ReadAllText(p, Encoding.UTF8)) as Dictionary<string, object>;
+                return d ?? new Dictionary<string, object>();
+            }
+            catch { return new Dictionary<string, object>(); }
+        }
+
+        private void SaveLooseManifest(Dictionary<string, object> manifest)
+        {
+            try
+            {
+                Directory.CreateDirectory(backupsDir);
+                File.WriteAllText(LooseManifestPath(), json.Serialize(manifest), Encoding.UTF8);
+            }
+            catch (Exception ex) { Log("SaveLooseManifest: " + ex.Message); }
+        }
+
+        private static string MakeRelative(string root, string full)
+        {
+            try
+            {
+                var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+                var fileFull = Path.GetFullPath(full);
+                if (fileFull.StartsWith(rootFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    return fileFull.Substring(rootFull.Length + 1).Replace('\\', '/');
+                }
+            }
+            catch { }
+            return "";
         }
 
         private string LivePapgtPath()
