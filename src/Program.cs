@@ -4807,9 +4807,11 @@ namespace CdJsonModManager
         }
     }
 
-    // Double-buffered scrolling Panel — used for the install panel body so the mod card list
-    // doesn't flicker / leave artifacts while scrolling, and the scrollbar updates the content
-    // live during a drag (default WinForms behaviour only updates on release).
+    // Double-buffered scrolling Panel — used for the install panel body. Uses standard
+    // DoubleBuffered (NOT WS_EX_COMPOSITED, which defers paint passes and breaks live thumb tracking).
+    // We additionally handle WM_VSCROLL with SB_THUMBTRACK explicitly: WinForms' default ScrollableControl
+    // updates AutoScrollPosition on thumb track but doesn't always paint immediately — calling Refresh
+    // forces an immediate repaint so the user sees the content move while their mouse is still held.
     internal sealed class BufferedScrollPanel : Panel
     {
         public BufferedScrollPanel()
@@ -4818,50 +4820,37 @@ namespace CdJsonModManager
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
         }
 
-        // WS_EX_COMPOSITED enables window-level double-buffering (every child paints into one off-screen
-        // buffer before the final blit). Eliminates the half-painted-mid-scroll artefacts.
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                var cp = base.CreateParams;
-                cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
-                return cp;
-            }
-        }
-
-        // Force the panel to redraw during a thumbtrack drag so the content scrolls with the thumb.
-        // Without this WinForms only updates the AutoScrollPosition on SB_ENDSCROLL (mouse release).
         protected override void WndProc(ref Message m)
         {
             const int WM_VSCROLL = 0x115;
             const int WM_HSCROLL = 0x114;
+            const int SB_THUMBTRACK = 5;
+            const int SB_THUMBPOSITION = 4;
             base.WndProc(ref m);
             if (m.Msg == WM_VSCROLL || m.Msg == WM_HSCROLL)
             {
-                Update();
+                int code = m.WParam.ToInt32() & 0xFFFF;
+                if (code == SB_THUMBTRACK || code == SB_THUMBPOSITION)
+                {
+                    // Force an immediate repaint so the content tracks the thumb in real time.
+                    Refresh();
+                }
+                else
+                {
+                    Update();
+                }
             }
         }
     }
 
     // Same trick for FlowLayoutPanel — used for the mod card host so the cards repaint smoothly
-    // during AutoScroll.
+    // during AutoScroll. Same WS_EX_COMPOSITED reasoning: skip it.
     internal sealed class BufferedFlowPanel : FlowLayoutPanel
     {
         public BufferedFlowPanel()
         {
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
-        }
-
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                var cp = base.CreateParams;
-                cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
-                return cp;
-            }
         }
     }
 
