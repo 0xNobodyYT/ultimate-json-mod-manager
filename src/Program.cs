@@ -2591,6 +2591,7 @@ namespace CdJsonModManager
             }
             UpdateModCardVisual(mod);
             RebuildPresetRail();
+            RefreshPatchList(); // so preview rows track the focused mod
         }
 
         private JsonMod FocusedMod()
@@ -2782,11 +2783,18 @@ namespace CdJsonModManager
         {
             if (patchList == null) return;
 
-            // Pre-build all items off the UI hot path, then commit once.
+            // Show all active (checked) mods' patches first — these will actually apply.
+            // Then, if the focused mod isn't already active, show its patches as a preview
+            // (dimmed + "preview" prefix) so the user can inspect what a mod does without
+            // having to enable it first.
             var pending = new List<ListViewItem>(256);
+            int activeCount = 0;
+            var focused = FocusedMod();
+            bool focusedAlreadyActive = false;
             foreach (var mod in mods)
             {
                 if (!activeBoxes.ContainsKey(mod.Path) || !activeBoxes[mod.Path].Checked) continue;
+                if (focused != null && string.Equals(mod.Path, focused.Path, StringComparison.OrdinalIgnoreCase)) focusedAlreadyActive = true;
                 var group = GroupFor(mod);
                 foreach (var change in mod.ChangesForGroup(group))
                 {
@@ -2795,6 +2803,23 @@ namespace CdJsonModManager
                     var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
                     item.SubItems.Add(fileName + "  +0x" + change.Offset.ToString("X"));
                     pending.Add(item);
+                    activeCount++;
+                }
+            }
+
+            int previewCount = 0;
+            if (focused != null && !focusedAlreadyActive)
+            {
+                var group = GroupFor(focused);
+                foreach (var change in focused.ChangesForGroup(group))
+                {
+                    var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
+                    var item = new ListViewItem("preview · " + label);
+                    var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
+                    item.SubItems.Add(fileName + "  +0x" + change.Offset.ToString("X"));
+                    item.ForeColor = Color.FromArgb(150, 138, 100);
+                    pending.Add(item);
+                    previewCount++;
                 }
             }
 
@@ -2813,7 +2838,9 @@ namespace CdJsonModManager
             {
                 int total = 0;
                 foreach (var mod in mods) total += mod.Changes.Count;
-                workspaceCounter.Text = patchList.Items.Count + " / " + total + " enabled";
+                var lead = activeCount + " / " + total + " will apply";
+                if (previewCount > 0) lead += " · " + previewCount + " preview";
+                workspaceCounter.Text = lead;
             }
         }
 
