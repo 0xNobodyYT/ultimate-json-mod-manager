@@ -551,12 +551,15 @@ namespace CdJsonModManager
                 WrapContents = false
             };
 
+            var backup = NewGradientButton("Create Backup", GradientButton.Style.Safe, 140, CreateFullBackup);
+            tipsHost.SetToolTip(backup, "Save the current game state as the revert point. Backs up meta\\0.papgt, 0008\\0.pamt, and the byte lengths of each .paz file. Run this after a Crimson Desert update (or after Steam → Verify Integrity of Game Files) so 'Uninstall Mods' has fresh backups to restore from.");
             var dryRun = NewGradientButton("Verify Bytes", GradientButton.Style.Default, 130, RunValidation);
             tipsHost.SetToolTip(dryRun, "Verify selected mods against the current game files without changing anything. Confirms each patch's 'original' bytes match what's actually in your installed game.");
             var apply = NewGradientButton("Apply Mods", GradientButton.Style.Primary, 150, ApplyOverlayStub);
             tipsHost.SetToolTip(apply, "Apply selected mods. Modded bytes are appended to the .paz archive (original data never overwritten) and the .pamt index is patched to point at them. Click 'Uninstall Mods' to fully revert.");
             var uninstall = NewGradientButton("Uninstall Mods", GradientButton.Style.Danger, 140, DisableAllMods);
             tipsHost.SetToolTip(uninstall, "Revert all mods: restores the .pamt from backup and truncates each .paz back to its pre-apply length. This is the only revert button you need.");
+            actions.Controls.Add(backup);
             actions.Controls.Add(dryRun);
             actions.Controls.Add(apply);
             actions.Controls.Add(uninstall);
@@ -1957,10 +1960,7 @@ namespace CdJsonModManager
             checkHost.Controls.Add(checkBackup, 0, 3);
             layout.Controls.Add(checkHost, 0, 1);
 
-            var backupBtn = NewGradientButton("Create 0.papgt Backup", GradientButton.Style.Default, 0, BackupPapgt);
-            backupBtn.Dock = DockStyle.Top;
-            backupBtn.Margin = new Padding(14, 4, 14, 8);
-            layout.Controls.Add(backupBtn, 0, 2);
+            // (Inspector backup button removed — Create Backup is now in the bottom action bar.)
 
             logBox = new TextBox
             {
@@ -3935,6 +3935,104 @@ namespace CdJsonModManager
                 File.Copy(live, gameBackup, true);
             }
             return true;
+        }
+
+        // Creates / refreshes the full revert state. Run after a game update so
+        // Uninstall Mods has fresh backups to restore from.
+        private void CreateFullBackup()
+        {
+            if (!IsGameFolder(gamePath))
+            {
+                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            var ans = MessageBox.Show(
+                "Save the current game state as the revert point?\r\n\r\n" +
+                "What gets saved (~few MB total):\r\n" +
+                "  • meta\\0.papgt (registration file)\r\n" +
+                "  • 0008\\0.pamt (archive index)\r\n" +
+                "  • Byte length of each 0008\\<N>.paz file\r\n\r\n" +
+                "When to run this:\r\n" +
+                "  • After Crimson Desert updates and BEFORE applying any mods\r\n" +
+                "  • After Steam → Verify Integrity of Game Files\r\n" +
+                "  • Whenever you're confident the current state is vanilla\r\n\r\n" +
+                "If mods are currently applied, click 'Uninstall Mods' first so the backup captures the vanilla state.\r\n\r\n" +
+                "Continue?",
+                "Create Backup", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (ans != DialogResult.Yes) return;
+
+            try
+            {
+                int saved = 0;
+
+                // 1. papgt
+                var papgtLive = LivePapgtPath();
+                if (!string.IsNullOrEmpty(papgtLive) && File.Exists(papgtLive))
+                {
+                    var appBackup = AppPapgtBackupPath();
+                    Directory.CreateDirectory(Path.GetDirectoryName(appBackup));
+                    File.Copy(papgtLive, appBackup, true);
+
+                    var gameBackup = GamePapgtBackupPath();
+                    if (!string.IsNullOrEmpty(gameBackup))
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(gameBackup));
+                        File.Copy(papgtLive, gameBackup, true);
+                    }
+                    saved++;
+                    Log("Backup: papgt refreshed.");
+                }
+                else
+                {
+                    Log("Backup: papgt not found at " + papgtLive + ", skipped.");
+                }
+
+                // 2. pamt
+                var pamtLive = Path.Combine(gamePath, "0008", "0.pamt");
+                var backupRoot = PazBackupsRoot();
+                Directory.CreateDirectory(backupRoot);
+                if (File.Exists(pamtLive))
+                {
+                    var pamtBackup = Path.Combine(backupRoot, "0.pamt.original");
+                    File.Copy(pamtLive, pamtBackup, true);
+                    saved++;
+                    Log("Backup: pamt refreshed.");
+                }
+                else
+                {
+                    Log("Backup: pamt not found, skipped.");
+                }
+
+                // 3. paz lengths (only files matching <digits>.paz, not the .paz.backup leftovers)
+                var pazDir = Path.Combine(gamePath, "0008");
+                int pazCount = 0;
+                if (Directory.Exists(pazDir))
+                {
+                    var pazRegex = new Regex(@"^\d+\.paz$");
+                    foreach (var pazFile in Directory.GetFiles(pazDir, "*.paz"))
+                    {
+                        var name = Path.GetFileName(pazFile);
+                        if (!pazRegex.IsMatch(name)) continue;
+                        var sz = new FileInfo(pazFile).Length;
+                        var lengthFile = Path.Combine(backupRoot, name + ".length.original");
+                        File.WriteAllText(lengthFile, sz.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        pazCount++;
+                    }
+                    Log("Backup: recorded length for " + pazCount + " paz file(s).");
+                }
+
+                UpdateInspectorBackup();
+                MessageBox.Show(
+                    "Backup created.\r\n\r\n" +
+                    "Captured: " + saved + " index file(s) + " + pazCount + " paz length record(s).\r\n\r\n" +
+                    "Until you click Apply Mods, this is the state Uninstall Mods will revert to.",
+                    "Backup complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Backup failed: " + ex.Message, "Backup error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void BackupPapgt()
