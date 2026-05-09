@@ -552,13 +552,13 @@ namespace CdJsonModManager
             };
 
             var backup = NewGradientButton("Create Backup", GradientButton.Style.Safe, 140, CreateFullBackup);
-            tipsHost.SetToolTip(backup, "Save the current game state as the revert point. Backs up meta\\0.papgt, 0008\\0.pamt, and the byte lengths of each .paz file. Run this after a Crimson Desert update (or after Steam → Verify Integrity of Game Files) so 'Uninstall Mods' has fresh backups to restore from.");
+            tipsHost.SetToolTip(backup, "Save the current game state as the revert point. Backs up meta\\0.papgt, 0008\\0.pamt, and the byte lengths of each .paz file. Run this after a Crimson Desert update (or after Steam → Verify Integrity of Game Files) so 'Restore Backup' has fresh backups to restore from.");
             var dryRun = NewGradientButton("Verify Bytes", GradientButton.Style.Default, 130, RunValidation);
             tipsHost.SetToolTip(dryRun, "Verify selected mods against the current game files without changing anything. Confirms each patch's 'original' bytes match what's actually in your installed game.");
             var apply = NewGradientButton("Apply Mods", GradientButton.Style.Primary, 150, ApplyOverlayStub);
-            tipsHost.SetToolTip(apply, "Apply selected mods. Modded bytes are appended to the .paz archive (original data never overwritten) and the .pamt index is patched to point at them. Click 'Uninstall Mods' to fully revert.");
-            var uninstall = NewGradientButton("Uninstall Mods", GradientButton.Style.Danger, 140, DisableAllMods);
-            tipsHost.SetToolTip(uninstall, "Revert all mods: restores the .pamt from backup and truncates each .paz back to its pre-apply length. This is the only revert button you need.");
+            tipsHost.SetToolTip(apply, "Apply selected mods. Modded bytes are appended to the .paz archive (original data never overwritten) and the .pamt index is patched to point at them. Click 'Restore Backup' to fully revert.");
+            var uninstall = NewGradientButton("Restore Backup", GradientButton.Style.Danger, 150, DisableAllMods);
+            tipsHost.SetToolTip(uninstall, "Restore the game to your saved backup state: restores the .pamt and truncates each .paz back to its recorded length. Uses the backup created by 'Create Backup' (or, if you skipped that step, the one auto-created by Apply Mods).");
             actions.Controls.Add(backup);
             actions.Controls.Add(dryRun);
             actions.Controls.Add(apply);
@@ -3362,7 +3362,7 @@ namespace CdJsonModManager
                 "  • Modded bytes are APPENDED to the existing archive(s) — original data is never overwritten.\r\n" +
                 "  • The archive index (PAMT) is patched in place to point at the new bytes.\r\n" +
                 "  • Pre-apply length of each archive + the original PAMT are saved to <game>\\_jmm_backups\\.\r\n" +
-                "  • Click 'Uninstall Mods' to fully revert (truncates archives back, restores the PAMT).\r\n\r\n" +
+                "  • Click 'Restore Backup' to fully revert (truncates archives back, restores the PAMT).\r\n\r\n" +
                 "Continue?",
                 "Apply mods?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (pre != DialogResult.Yes) return;
@@ -3558,7 +3558,7 @@ namespace CdJsonModManager
             catch (Exception ex)
             {
                 Log("PAMT write failed: " + ex.Message);
-                MessageBox.Show("PAMT write failed: " + ex.Message + "\r\n\r\nThe paz files were appended to but the index wasn't updated. The game will still work; click 'Uninstall Mods' to truncate the appended bytes.", "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("PAMT write failed: " + ex.Message + "\r\n\r\nThe paz files were appended to but the index wasn't updated. The game will still work; click 'Restore Backup' to truncate the appended bytes.", "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -3566,7 +3566,7 @@ namespace CdJsonModManager
                 "Applied " + totalApplied + " patches across " + pamtChanges + " archive entries.\r\n" +
                 (totalMismatch > 0 ? totalMismatch + " patch(es) skipped due to byte mismatch (see log).\r\n" : "") +
                 (fileSkipped > 0 ? fileSkipped + " file(s) skipped entirely.\r\n" : "") +
-                "\r\nLaunch Crimson Desert and test.\r\nClick 'Uninstall Mods' to fully revert.",
+                "\r\nLaunch Crimson Desert and test.\r\nClick 'Restore Backup' to fully revert.",
                 "Mods applied", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -3667,7 +3667,7 @@ namespace CdJsonModManager
                 "This will write modded copies of " + byGameFile.Count + " game file(s) into your Crimson Desert folder as loose files (the engine reads loose files first).\r\n\r\n" +
                 "• Original game archives are NEVER modified.\r\n" +
                 "• Any pre-existing file at a target path is backed up first.\r\n" +
-                "• Click 'Uninstall Mods' to fully revert.\r\n\r\n" +
+                "• Click 'Restore Backup' to fully revert.\r\n\r\n" +
                 "Continue?",
                 "Apply mods?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (pre != DialogResult.Yes) return;
@@ -3802,7 +3802,7 @@ namespace CdJsonModManager
                 (backedUp > 0 ? backedUp + " pre-existing file(s) were backed up to <game>\\_ujmm_probe_backups\\.\r\n" : "") +
                 "\r\nLaunch Crimson Desert and test the modded behavior.\r\n" +
                 "If the changes take effect → loose-file overlay works.\r\n" +
-                "If they don't → click 'Uninstall Mods' to revert and we'll try the next approach.",
+                "If they don't → click 'Restore Backup' to revert and we'll try the next approach.",
                 "Mods applied (probe)", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -3938,7 +3938,7 @@ namespace CdJsonModManager
         }
 
         // Creates / refreshes the full revert state. Run after a game update so
-        // Uninstall Mods has fresh backups to restore from.
+        // Restore Backup has fresh backups to revert to.
         private void CreateFullBackup()
         {
             if (!IsGameFolder(gamePath))
@@ -3957,7 +3957,7 @@ namespace CdJsonModManager
                 "  • After Crimson Desert updates and BEFORE applying any mods\r\n" +
                 "  • After Steam → Verify Integrity of Game Files\r\n" +
                 "  • Whenever you're confident the current state is vanilla\r\n\r\n" +
-                "If mods are currently applied, click 'Uninstall Mods' first so the backup captures the vanilla state.\r\n\r\n" +
+                "If mods are currently applied, click 'Restore Backup' first so the backup captures the vanilla state.\r\n\r\n" +
                 "Continue?",
                 "Create Backup", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (ans != DialogResult.Yes) return;
@@ -4026,7 +4026,7 @@ namespace CdJsonModManager
                 MessageBox.Show(
                     "Backup created.\r\n\r\n" +
                     "Captured: " + saved + " index file(s) + " + pazCount + " paz length record(s).\r\n\r\n" +
-                    "Until you click Apply Mods, this is the state Uninstall Mods will revert to.",
+                    "Until you click Apply Mods, this is the state Restore Backup will revert to.",
                     "Backup complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
