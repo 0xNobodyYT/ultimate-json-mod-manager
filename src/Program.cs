@@ -29,7 +29,7 @@ namespace CdJsonModManager
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string AppVersion = "1.2.0";
         public const string NexusGameDomain = "crimsondesert";
-        public const string NexusSsoApplication = "ujmm"; // app slug used for SSO handshake
+        public const string NexusSsoApplication = "0xnobody-ultimatejsonmodmanager"; // app slug used for SSO handshake — assigned by Nexus 2026-05-10
         public const string NxmScheme = "nxm";
 
         [STAThread]
