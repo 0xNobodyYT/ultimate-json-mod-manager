@@ -30,6 +30,12 @@ UJMM imports JSON byte-patch mods, known JSON v3/FIELDS mods, RAW and Browser/UI
 
 Requires .NET Framework 4.7.2 or later.
 
+### Linux / Wine Notes
+
+- **Detect** checks common Linux Steam locations too: `~/.steam/steam`, `~/.steam/root`, `~/.local/share/Steam`, and the Flatpak Steam path under `~/.var/app/com.valvesoftware.Steam/`.
+- UJMM also reads Steam `libraryfolders.vdf`, so extra Steam library drives can be detected.
+- If the folder picker hides dot folders such as `.steam`, paste the full path into the game-folder box and click **Save**. Paths like `~/.steam/steam/steamapps/common/Crimson Desert` and `file:///home/...` are accepted.
+
 ## Use
 
 ### Adding Mods

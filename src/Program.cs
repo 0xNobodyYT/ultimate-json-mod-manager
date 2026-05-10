@@ -16,8 +16,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
-[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.1.0")]
+[assembly: AssemblyVersion("1.3.1.0")]
 
 namespace CdJsonModManager
 {
@@ -28,7 +28,7 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.3.0";
+        public const string AppVersion = "1.3.1";
         public const string NexusGameDomain = "crimsondesert";
         public const string NexusSsoApplication = "0xnobody-ultimatejsonmodmanager"; // app slug used for SSO handshake — assigned by Nexus 2026-05-10
         public const string NxmScheme = "nxm";
@@ -3476,13 +3476,14 @@ namespace CdJsonModManager
 
         private void SaveGamePath()
         {
-            var path = gamePathText.Text.Trim().Trim('"');
+            var path = NormalizeGameFolderInput(gamePathText.Text);
             if (!IsGameFolder(path))
             {
-                MessageBox.Show("Choose the Crimson Desert folder that contains bin64 and 0008.", "Invalid folder", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Choose the Crimson Desert folder that contains bin64 and 0008.\r\n\r\nLinux/Wine users can paste the full path manually, including dot folders such as ~/.steam.", "Invalid folder", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             gamePath = path;
+            gamePathText.Text = path;
             config["gamePath"] = path;
             SaveConfig(config);
             EnsurePapgtBackup(false);
@@ -5638,20 +5639,103 @@ namespace CdJsonModManager
 
         private string DetectGameFolder()
         {
-            var candidates = new[]
-            {
-                @"E:\Program Files\Steam\steamapps\common\Crimson Desert",
-                @"C:\Program Files (x86)\Steam\steamapps\common\Crimson Desert",
-                @"C:\Program Files\Steam\steamapps\common\Crimson Desert"
-            };
+            var candidates = BuildGameFolderCandidates();
             return candidates.FirstOrDefault(IsGameFolder) ?? "";
         }
 
         private bool IsGameFolder(string path)
         {
+            path = NormalizeGameFolderInput(path);
             return !string.IsNullOrWhiteSpace(path)
                 && Directory.Exists(Path.Combine(path, "bin64"))
                 && File.Exists(Path.Combine(path, "0008", "0.pamt"));
+        }
+
+        private static IEnumerable<string> BuildGameFolderCandidates()
+        {
+            var candidates = new List<string>
+            {
+                @"E:\Program Files\Steam\steamapps\common\Crimson Desert",
+                @"C:\Program Files (x86)\Steam\steamapps\common\Crimson Desert",
+                @"C:\Program Files\Steam\steamapps\common\Crimson Desert"
+            };
+
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrWhiteSpace(home))
+            {
+                home = Environment.GetEnvironmentVariable("HOME");
+            }
+
+            if (!string.IsNullOrWhiteSpace(home))
+            {
+                var steamRoots = new[]
+                {
+                    Path.Combine(home, ".steam", "steam"),
+                    Path.Combine(home, ".steam", "root"),
+                    Path.Combine(home, ".local", "share", "Steam"),
+                    Path.Combine(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam")
+                };
+
+                foreach (var root in steamRoots)
+                {
+                    AddSteamGameCandidate(candidates, root);
+                    foreach (var library in ReadSteamLibraryFolders(root))
+                    {
+                        AddSteamGameCandidate(candidates, library);
+                    }
+                }
+            }
+
+            return candidates.Select(NormalizeGameFolderInput)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static void AddSteamGameCandidate(List<string> candidates, string steamRoot)
+        {
+            if (string.IsNullOrWhiteSpace(steamRoot)) return;
+            candidates.Add(Path.Combine(steamRoot, "steamapps", "common", "Crimson Desert"));
+        }
+
+        private static IEnumerable<string> ReadSteamLibraryFolders(string steamRoot)
+        {
+            var output = new List<string>();
+            if (string.IsNullOrWhiteSpace(steamRoot)) return output;
+            var vdf = Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf");
+            if (!File.Exists(vdf)) return output;
+
+            try
+            {
+                foreach (Match match in Regex.Matches(File.ReadAllText(vdf, Encoding.UTF8), "\"path\"\\s+\"([^\"]+)\"", RegexOptions.IgnoreCase))
+                {
+                    var path = match.Groups[1].Value.Replace(@"\\", @"\");
+                    path = NormalizeGameFolderInput(path);
+                    if (!string.IsNullOrWhiteSpace(path)) output.Add(path);
+                }
+            }
+            catch { }
+            return output;
+        }
+
+        private static string NormalizeGameFolderInput(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "";
+            path = path.Trim().Trim('"', '\'');
+
+            if (path.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            {
+                try { path = new Uri(path).LocalPath; } catch { path = path.Substring("file://".Length); }
+            }
+
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrWhiteSpace(home)) home = Environment.GetEnvironmentVariable("HOME");
+            if (!string.IsNullOrWhiteSpace(home) && (path == "~" || path.StartsWith("~/") || path.StartsWith(@"~\", StringComparison.Ordinal)))
+            {
+                path = Path.Combine(home, path.Length == 1 ? "" : path.Substring(2));
+            }
+
+            path = Environment.ExpandEnvironmentVariables(path);
+            return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, '/', '\\');
         }
 
         private void OpenFolder(string path)
