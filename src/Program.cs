@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -15,8 +16,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
-[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
 
 namespace CdJsonModManager
 {
@@ -27,7 +28,7 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.2.0";
+        public const string AppVersion = "1.3.0";
         public const string NexusGameDomain = "crimsondesert";
         public const string NexusSsoApplication = "0xnobody-ultimatejsonmodmanager"; // app slug used for SSO handshake — assigned by Nexus 2026-05-10
         public const string NxmScheme = "nxm";
@@ -618,16 +619,17 @@ namespace CdJsonModManager
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 1,
-                RowCount = 4,
+                RowCount = 5,
                 BackColor = Color.Transparent
             };
             bodyStack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 4; i++) bodyStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 0; i < 5; i++) bodyStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             body.Controls.Add(bodyStack);
 
             bodyStack.Controls.Add(BuildPathCard(), 0, 0);
             bodyStack.Controls.Add(BuildThemeSwatches(), 0, 1);
             bodyStack.Controls.Add(BuildDropZone(), 0, 2);
+            bodyStack.Controls.Add(BuildRefreshModsRow(), 0, 3);
 
             modCardsHost = new BufferedFlowPanel
             {
@@ -637,9 +639,9 @@ namespace CdJsonModManager
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
                 BackColor = Color.Transparent,
-                Margin = new Padding(0, 12, 0, 0)
+                Margin = new Padding(0, 8, 0, 0)
             };
-            bodyStack.Controls.Add(modCardsHost, 0, 3);
+            bodyStack.Controls.Add(modCardsHost, 0, 4);
 
             return panel;
         }
@@ -816,7 +818,7 @@ namespace CdJsonModManager
                 CornerRadius = 18,
                 BorderWidth = 1,
                 AutoSize = false,
-                Height = 92,
+                Height = 112,
                 Margin = new Padding(0, 0, 0, 0),
                 Padding = new Padding(16, 12, 16, 12),
                 AllowDrop = true,
@@ -839,7 +841,7 @@ namespace CdJsonModManager
 
             dropTitle = new Label
             {
-                Text = "Drop JSON or ASI mods here",
+                Text = "Drop or click to import",
                 Dock = DockStyle.Fill,
                 Font = new Font("Trebuchet MS", 12, FontStyle.Bold),
                 ForeColor = Color.FromArgb(244, 234, 209),
@@ -850,9 +852,9 @@ namespace CdJsonModManager
 
             dropHint = new Label
             {
-                Text = "Accepts .json files/folders for mods, .asi/.dll/.ini for runtime hooks.",
+                Text = "Files: JSON/FIELDS, ZIP/7Z/RAR, ASI/DLL/INI. Folders: RAW, Browser/UI.",
                 Dock = DockStyle.Fill,
-                Font = new Font("Consolas", 8.5f),
+                Font = new Font("Consolas", 8f),
                 ForeColor = Color.FromArgb(169, 157, 124),
                 BackColor = Color.Transparent,
                 TextAlign = ContentAlignment.TopCenter
@@ -864,14 +866,34 @@ namespace CdJsonModManager
             panel.DragLeave += (sender, args) => { panel.PulseAccent = false; panel.Invalidate(); };
             panel.DragDrop += DropZoneDragDrop;
 
-            // Click anywhere on the drop zone to browse
-            panel.Click += (sender, args) => AddJsonMods();
-            dropTitle.Click += (sender, args) => AddJsonMods();
-            dropHint.Click += (sender, args) => AddJsonMods();
-            stack.Click += (sender, args) => AddJsonMods();
+            // Click anywhere on the drop zone to browse for either files or package folders.
+            panel.Click += (sender, args) => ShowImportMenu(panel);
+            dropTitle.Click += (sender, args) => ShowImportMenu(panel);
+            dropHint.Click += (sender, args) => ShowImportMenu(panel);
+            stack.Click += (sender, args) => ShowImportMenu(panel);
 
             dropZone = panel;
             return panel;
+        }
+
+        private Control BuildRefreshModsRow()
+        {
+            var row = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Dock = DockStyle.Top,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Margin = new Padding(0, 8, 0, 0)
+            };
+            var refresh = NewGradientButton("Refresh Mods", GradientButton.Style.Default, 128, RefreshModsFromDisk);
+            refresh.Height = 30;
+            refresh.Margin = new Padding(0);
+            tipsHost.SetToolTip(refresh, "Reload the mods folder after editing JSON files or copying files manually into mods/.");
+            row.Controls.Add(refresh);
+            return row;
         }
 
         private RoundedPanel BuildWorkspacePanel()
@@ -2030,27 +2052,8 @@ namespace CdJsonModManager
             {
                 var stage = Path.Combine(Path.GetDirectoryName(path), Path.GetFileNameWithoutExtension(path) + "_extracted");
                 Directory.CreateDirectory(stage);
-                if (ext == ".zip")
-                {
-                    using (var fs = File.OpenRead(path))
-                    using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Read))
-                    {
-                        foreach (var entry in zip.Entries)
-                        {
-                            if (string.IsNullOrEmpty(entry.Name)) continue;
-                            var dest = Path.Combine(stage, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
-                            var dir = Path.GetDirectoryName(dest);
-                            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                            using (var src = entry.Open())
-                            using (var dst = File.Create(dest))
-                            {
-                                src.CopyTo(dst);
-                            }
-                        }
-                    }
-                    return ImportFolder(stage, modsDirLocal, asiDirLocal, bin64Path);
-                }
-                return "skipped (need 7-zip/rar support to extract " + ext + ")";
+                ExtractArchiveToDirectory(path, stage);
+                return ImportFolder(stage, modsDirLocal, asiDirLocal, bin64Path);
             }
             return ImportSingleFile(path, modsDirLocal, asiDirLocal, bin64Path);
         }
@@ -2406,8 +2409,8 @@ namespace CdJsonModManager
             modCards.Clear();
             modCardPills.Clear();
             nexusLinks.Clear();
-            // Preserve focus across reload only if the focused mod's file still exists
-            if (!string.IsNullOrEmpty(focusedModPath) && !File.Exists(focusedModPath)) focusedModPath = "";
+            // Preserve focus across reload only if the focused mod's file/folder still exists.
+            if (!string.IsNullOrEmpty(focusedModPath) && !File.Exists(focusedModPath) && !Directory.Exists(focusedModPath)) focusedModPath = "";
             if (modCardsHost == null) return;
             modCardsHost.Controls.Clear();
 
@@ -2420,6 +2423,18 @@ namespace CdJsonModManager
                 catch (Exception ex)
                 {
                     Log("Skipped " + Path.GetFileName(file) + ": " + ex.Message);
+                }
+            }
+            foreach (var dir in Directory.GetDirectories(modsDir).OrderBy(Path.GetFileName))
+            {
+                try
+                {
+                    if (IsRawOverlayDirectory(dir)) mods.Add(JsonMod.LoadOverlayDirectory(dir, json, "RAW"));
+                    else if (IsBrowserModDirectory(dir)) mods.Add(JsonMod.LoadOverlayDirectory(dir, json, "BROWSER"));
+                }
+                catch (Exception ex)
+                {
+                    Log("Skipped " + Path.GetFileName(dir) + ": " + ex.Message);
                 }
             }
 
@@ -2493,10 +2508,8 @@ namespace CdJsonModManager
 
                 var tag = new Pill
                 {
-                    Text = "JSON",
+                    Text = mod.FormatTag,
                     DotColor = Color.Empty,
-                    PillFillColor = Color.FromArgb(216, 166, 64),
-                    PillTextColor = Color.FromArgb(21, 15, 8),
                     BorderlessTag = true,
                     Font = new Font("Consolas", 7.5f, FontStyle.Bold),
                     Height = 18,
@@ -2504,6 +2517,7 @@ namespace CdJsonModManager
                     Margin = new Padding(0, 4, 0, 0),
                     Cursor = Cursors.Hand
                 };
+                ApplyFormatPillStyle(tag, mod.FormatTag);
                 titleRow.Controls.Add(tag, 2, 0);
                 stack.Controls.Add(titleRow, 0, 0);
                 modCardPills[mod.Path] = tag;
@@ -2522,7 +2536,7 @@ namespace CdJsonModManager
                 var metaLabel = new Label
                 {
                     Text = !string.IsNullOrWhiteSpace(mod.Description) ? mod.Description :
-                           (string.IsNullOrWhiteSpace(mod.Version + mod.Author) ? "JSON byte-patch mod" : (mod.Version + " by " + mod.Author).Trim()),
+                           (string.IsNullOrWhiteSpace(mod.Version + mod.Author) ? mod.FormatTag + " mod" : (mod.Version + " by " + mod.Author).Trim()),
                     Dock = DockStyle.Fill,
                     Font = new Font("Consolas", 7.5f),
                     ForeColor = Color.FromArgb(169, 157, 124),
@@ -2601,15 +2615,22 @@ namespace CdJsonModManager
             Log("Loaded " + mods.Count + " JSON mod file(s).");
         }
 
+        private void RefreshModsFromDisk()
+        {
+            var before = mods.Count;
+            LoadMods();
+            RefreshAsi();
+            Log("Refreshed mods folder: " + before + " -> " + mods.Count + " mod(s).");
+        }
+
         private void UpdateModPillForLink(JsonMod mod)
         {
             if (!modCardPills.ContainsKey(mod.Path)) return;
             var pill = modCardPills[mod.Path];
             if (!nexusLinks.ContainsKey(mod.Path))
             {
-                pill.Text = "JSON";
-                pill.PillFillColor = Color.FromArgb(216, 166, 64);
-                pill.PillTextColor = Color.FromArgb(21, 15, 8);
+                pill.Text = mod.FormatTag;
+                ApplyFormatPillStyle(pill, mod.FormatTag);
                 pill.Width = 0;
                 pill.Invalidate();
                 return;
@@ -2629,6 +2650,31 @@ namespace CdJsonModManager
             }
             pill.Width = 0;
             pill.Invalidate();
+        }
+
+        private static void ApplyFormatPillStyle(Pill pill, string tag)
+        {
+            var normalized = (tag ?? "JSON").ToUpperInvariant();
+            if (normalized == "FIELDS")
+            {
+                pill.PillFillColor = Color.FromArgb(126, 216, 194);
+                pill.PillTextColor = Color.FromArgb(8, 28, 24);
+            }
+            else if (normalized == "RAW")
+            {
+                pill.PillFillColor = Color.FromArgb(178, 134, 216);
+                pill.PillTextColor = Color.FromArgb(24, 12, 33);
+            }
+            else if (normalized == "BROWSER")
+            {
+                pill.PillFillColor = Color.FromArgb(140, 199, 221);
+                pill.PillTextColor = Color.FromArgb(8, 22, 31);
+            }
+            else
+            {
+                pill.PillFillColor = Color.FromArgb(216, 166, 64);
+                pill.PillTextColor = Color.FromArgb(21, 15, 8);
+            }
         }
 
         private void PromptLinkToNexus(JsonMod mod)
@@ -2885,6 +2931,56 @@ namespace CdJsonModManager
             tipsHost.SetToolTip(header, focused.Name);
             presetRailHost.Controls.Add(header);
 
+            if (IsOverlayMod(focused))
+            {
+                var card = new RoundedPanel
+                {
+                    CornerRadius = 14,
+                    BorderWidth = 1,
+                    Width = 152,
+                    Height = 70,
+                    Margin = new Padding(0, 0, 0, 8),
+                    Padding = new Padding(11, 8, 11, 8)
+                };
+                card.GradientTopOverride = Color.FromArgb(60, 101, 197, 134);
+                card.GradientBottomOverride = Color.FromArgb(110, 0, 0, 0);
+                card.BorderColor = Color.FromArgb(150, 101, 197, 134);
+
+                var inner = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 1,
+                    RowCount = 2,
+                    BackColor = Color.Transparent
+                };
+                inner.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+                inner.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                card.Controls.Add(inner);
+
+                inner.Controls.Add(new Label
+                {
+                    Text = focused.FormatTag + " overlay",
+                    Dock = DockStyle.Fill,
+                    Font = new Font("Trebuchet MS", 11.5f, FontStyle.Bold),
+                    BackColor = Color.Transparent,
+                    ForeColor = Color.FromArgb(244, 234, 209),
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    AutoEllipsis = true
+                }, 0, 0);
+                inner.Controls.Add(new Label
+                {
+                    Text = OverlayUnitText(focused),
+                    Dock = DockStyle.Fill,
+                    Font = new Font("Consolas", 8f),
+                    BackColor = Color.Transparent,
+                    ForeColor = Color.FromArgb(169, 157, 124),
+                    TextAlign = ContentAlignment.MiddleLeft
+                }, 0, 1);
+                tipsHost.SetToolTip(card, "This mod installs overlay folders, not JSON byte patches.");
+                presetRailHost.Controls.Add(card);
+                return;
+            }
+
             var groups = focused.Groups ?? new List<string>();
             // Sort by parsed % when applicable, else lexicographic
             groups = groups.OrderBy(g => g, Comparer<string>.Create((a, b) =>
@@ -2898,7 +2994,8 @@ namespace CdJsonModManager
                 return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
             })).ToList();
 
-            if (groups.Count == 0 || (groups.Count == 1 && string.Equals(groups[0], "All", StringComparison.OrdinalIgnoreCase)))
+            var showSingleAllAsCard = string.Equals(focused.FormatTag, "FIELDS", StringComparison.OrdinalIgnoreCase);
+            if (groups.Count == 0 || (!showSingleAllAsCard && groups.Count == 1 && string.Equals(groups[0], "All", StringComparison.OrdinalIgnoreCase)))
             {
                 presetRailHost.Controls.Add(new Label
                 {
@@ -2917,6 +3014,9 @@ namespace CdJsonModManager
             {
                 var captured = g;
                 int patchCount = focused.Changes.Count(c => string.Equals(c.Group, g, StringComparison.OrdinalIgnoreCase));
+                var displayName = showSingleAllAsCard && string.Equals(g, "All", StringComparison.OrdinalIgnoreCase)
+                    ? focused.Name
+                    : g;
 
                 var card = new RoundedPanel
                 {
@@ -2945,14 +3045,16 @@ namespace CdJsonModManager
 
                 var titleLabel = new Label
                 {
-                    Text = g,
+                    Text = displayName,
                     Dock = DockStyle.Fill,
                     Font = new Font("Trebuchet MS", 12.5f, FontStyle.Bold),
                     BackColor = Color.Transparent,
                     ForeColor = Color.FromArgb(244, 234, 209),
                     TextAlign = ContentAlignment.MiddleLeft,
-                    Cursor = Cursors.Hand
+                    Cursor = Cursors.Hand,
+                    AutoEllipsis = true
                 };
+                tipsHost.SetToolTip(titleLabel, displayName);
                 inner.Controls.Add(titleLabel, 0, 0);
 
                 var subLabel = new Label
@@ -3025,23 +3127,44 @@ namespace CdJsonModManager
             var pending = new List<ListViewItem>(256);
             int activeCount = 0;
             int activeAppliedCount = 0;
+            int activeOverlayCount = 0;
             var focused = FocusedMod();
             bool focusedAlreadyActive = false;
             foreach (var mod in mods)
             {
                 if (!activeBoxes.ContainsKey(mod.Path) || !activeBoxes[mod.Path].Checked) continue;
                 if (focused != null && string.Equals(mod.Path, focused.Path, StringComparison.OrdinalIgnoreCase)) focusedAlreadyActive = true;
+                if (IsOverlayMod(mod))
+                {
+                    foreach (var folder in mod.OverlayFolders)
+                    {
+                        foreach (var file in OverlayFiles(folder))
+                        {
+                            var label = OverlayFileLabel(folder, file);
+                            var target = OverlayTargetDisplay(mod, folder);
+                            activeOverlayCount++;
+                            if (filter.Length > 0
+                                && !label.ToLowerInvariant().Contains(filter)
+                                && !target.ToLowerInvariant().Contains(filter)
+                                && !mod.Name.ToLowerInvariant().Contains(filter))
+                            {
+                                continue;
+                            }
+                            var item = new ListViewItem(label);
+                            item.SubItems.Add(target);
+                            item.Tag = null;
+                            item.Checked = true;
+                            pending.Add(item);
+                        }
+                    }
+                    continue;
+                }
                 var group = GroupFor(mod);
                 int idx = 0;
                 foreach (var change in mod.ChangesForGroup(group))
                 {
                     var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
-                    var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
-                    var patchedPreview = !string.IsNullOrEmpty(change.Patched)
-                        ? "  → " + change.Patched.Replace(" ", "").ToUpperInvariant()
-                        : "";
-                    if (patchedPreview.Length > 18) patchedPreview = patchedPreview.Substring(0, 18) + "…";
-                    var target = fileName + "  +0x" + change.Offset.ToString("X") + patchedPreview;
+                    var target = PatchTargetDisplay(change);
                     activeCount++;
                     var key = PatchKey(mod, group, idx);
                     bool patchEnabled = !disabledPatches.Contains(key);
@@ -3063,19 +3186,42 @@ namespace CdJsonModManager
             }
 
             int previewCount = 0;
+            int previewOverlayCount = 0;
             if (focused != null && !focusedAlreadyActive)
             {
+                if (IsOverlayMod(focused))
+                {
+                    foreach (var folder in focused.OverlayFolders)
+                    {
+                        foreach (var file in OverlayFiles(folder))
+                        {
+                            var label = "preview - " + OverlayFileLabel(folder, file);
+                            var target = OverlayTargetDisplay(focused, folder);
+                            if (filter.Length > 0
+                                && !label.ToLowerInvariant().Contains(filter)
+                                && !target.ToLowerInvariant().Contains(filter)
+                                && !focused.Name.ToLowerInvariant().Contains(filter))
+                            {
+                                continue;
+                            }
+                            var item = new ListViewItem(label);
+                            item.SubItems.Add(target);
+                            item.ForeColor = Color.FromArgb(150, 138, 100);
+                            item.Tag = null;
+                            item.Checked = true;
+                            pending.Add(item);
+                            previewOverlayCount++;
+                        }
+                    }
+                }
+                else
+                {
                 var group = GroupFor(focused);
                 int idx = 0;
                 foreach (var change in focused.ChangesForGroup(group))
                 {
                     var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
-                    var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
-                    var patchedPreview = !string.IsNullOrEmpty(change.Patched)
-                        ? "  → " + change.Patched.Replace(" ", "").ToUpperInvariant()
-                        : "";
-                    if (patchedPreview.Length > 18) patchedPreview = patchedPreview.Substring(0, 18) + "…";
-                    var target = fileName + "  +0x" + change.Offset.ToString("X") + patchedPreview;
+                    var target = PatchTargetDisplay(change);
                     var key = PatchKey(focused, group, idx);
                     bool patchEnabled = !disabledPatches.Contains(key);
                     idx++;
@@ -3093,6 +3239,7 @@ namespace CdJsonModManager
                     item.Checked = patchEnabled;
                     pending.Add(item);
                     previewCount++;
+                }
                 }
             }
 
@@ -3114,10 +3261,63 @@ namespace CdJsonModManager
                 int total = 0;
                 foreach (var mod in mods) total += mod.Changes.Count;
                 var lead = activeAppliedCount + " / " + total + " will apply";
+                if (activeOverlayCount > 0) lead += " + " + activeOverlayCount + " overlay file" + (activeOverlayCount == 1 ? "" : "s");
                 if (previewCount > 0) lead += " · " + previewCount + " preview";
                 if (filter.Length > 0) lead += " · filtered: \"" + filter + "\"";
+                if (previewOverlayCount > 0) lead += " - " + previewOverlayCount + " overlay file preview" + (previewOverlayCount == 1 ? "" : "s");
                 workspaceCounter.Text = lead;
             }
+        }
+
+        private static bool IsOverlayMod(JsonMod mod)
+        {
+            return mod != null
+                && (string.Equals(mod.FormatTag, "RAW", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(mod.FormatTag, "BROWSER", StringComparison.OrdinalIgnoreCase))
+                && mod.OverlayFolders != null
+                && mod.OverlayFolders.Count > 0;
+        }
+
+        private static string OverlayUnitText(JsonMod mod)
+        {
+            var count = mod != null && mod.OverlayFolders != null ? mod.OverlayFolders.Count : 0;
+            return count + " folder" + (count == 1 ? "" : "s") + " to copy/register";
+        }
+
+        private static string OverlayTargetDisplay(JsonMod mod, string folder)
+        {
+            var slot = Path.GetFileName(folder);
+            var pamt = Path.Combine(folder, "0.pamt");
+            if (File.Exists(pamt)) return slot + " -> game folder + meta\\0.papgt";
+            return slot + " -> game folder";
+        }
+
+        private static IEnumerable<string> OverlayFiles(string folder)
+        {
+            if (!Directory.Exists(folder)) return Enumerable.Empty<string>();
+            var files = Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (files.Count > 0) return files;
+            return new[] { folder };
+        }
+
+        private static string OverlayFileLabel(string folder, string file)
+        {
+            if (!File.Exists(file)) return Path.GetFileName(folder);
+            var rel = file.Substring(folder.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return rel.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
+        }
+
+        private static string PatchTargetDisplay(PatchChange change)
+        {
+            if (!string.IsNullOrWhiteSpace(change.TargetDisplay)) return change.TargetDisplay;
+            var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
+            var patchedPreview = !string.IsNullOrEmpty(change.Patched)
+                ? "  → " + change.Patched.Replace(" ", "").ToUpperInvariant()
+                : "";
+            if (patchedPreview.Length > 18) patchedPreview = patchedPreview.Substring(0, 18) + "…";
+            return fileName + "  +0x" + change.Offset.ToString("X") + patchedPreview;
         }
 
         private void PersistSelectionAndRefresh()
@@ -3157,7 +3357,8 @@ namespace CdJsonModManager
             try
             {
                 if (File.Exists(mod.Path)) File.Delete(mod.Path);
-                Log("Deleted JSON mod: " + mod.Name + ".");
+                else if (Directory.Exists(mod.Path)) Directory.Delete(mod.Path, true);
+                Log("Deleted mod: " + mod.Name + ".");
 
                 // Surgical UI update — drop just this card instead of rebuilding the whole list (which flickers + scroll-resets).
                 if (modCards.ContainsKey(mod.Path))
@@ -3295,13 +3496,36 @@ namespace CdJsonModManager
         {
             using (var dialog = new OpenFileDialog
             {
-                Filter = "JSON / ASI / DLL / INI (*.json;*.asi;*.dll;*.ini)|*.json;*.asi;*.dll;*.ini|JSON mods (*.json)|*.json|ASI/DLL/INI (*.asi;*.dll;*.ini)|*.asi;*.dll;*.ini",
+                Filter = "Mods (*.json;*.zip;*.7z;*.rar;*.asi;*.dll;*.ini)|*.json;*.zip;*.7z;*.rar;*.asi;*.dll;*.ini|JSON mods (*.json)|*.json|Archives (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|ASI/DLL/INI (*.asi;*.dll;*.ini)|*.asi;*.dll;*.ini",
                 Multiselect = true
             })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 ImportPaths(dialog.FileNames);
             }
+        }
+
+        private void AddModFolder()
+        {
+            using (var dialog = new FolderBrowserDialog
+            {
+                Description = "Choose a mod folder: RAW, Browser/UI, or a folder containing JSON/ZIP/ASI files"
+            })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                ImportPaths(new[] { dialog.SelectedPath });
+            }
+        }
+
+        private void ShowImportMenu(Control anchor)
+        {
+            var menu = new ContextMenuStrip();
+            menu.Items.Add("Import files...", null, (sender, args) => AddJsonMods());
+            menu.Items.Add("Import folder...", null, (sender, args) => AddModFolder());
+            var point = anchor.PointToClient(Cursor.Position);
+            if (!anchor.ClientRectangle.Contains(point))
+                point = new Point(anchor.Width / 2, anchor.Height / 2);
+            menu.Show(anchor, point);
         }
 
         private void DropZoneDragEnter(object sender, DragEventArgs args)
@@ -3340,11 +3564,15 @@ namespace CdJsonModManager
             if (File.Exists(path))
             {
                 var ext = (Path.GetExtension(path) ?? "").ToLowerInvariant();
-                return ext == ".json" || ext == ".asi" || ext == ".dll" || ext == ".ini";
+                return ext == ".json" || IsSupportedArchiveExtension(ext) || ext == ".asi" || ext == ".dll" || ext == ".ini";
             }
             if (Directory.Exists(path))
             {
+                if (IsRawOverlayDirectory(path) || IsBrowserModDirectory(path)) return true;
                 if (Directory.GetFiles(path, "*.json", SearchOption.AllDirectories).Any()) return true;
+                if (Directory.GetFiles(path, "*.zip", SearchOption.AllDirectories).Any()) return true;
+                if (Directory.GetFiles(path, "*.7z", SearchOption.AllDirectories).Any()) return true;
+                if (Directory.GetFiles(path, "*.rar", SearchOption.AllDirectories).Any()) return true;
                 if (Directory.GetFiles(path, "*.asi", SearchOption.AllDirectories).Any()) return true;
                 if (Directory.GetFiles(path, "*.dll", SearchOption.AllDirectories).Any()) return true;
                 if (Directory.GetFiles(path, "*.ini", SearchOption.AllDirectories).Any()) return true;
@@ -3356,21 +3584,26 @@ namespace CdJsonModManager
         {
             var jsonCandidates = new List<string>();
             var asiCandidates = new List<string>();
+            var packageCandidates = new List<string>();
+            var archiveCandidates = new List<string>();
 
             foreach (var path in paths)
             {
-                if (File.Exists(path))
+                CollectImportCandidates(path, jsonCandidates, asiCandidates, archiveCandidates, packageCandidates);
+            }
+
+            foreach (var archive in archiveCandidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try
                 {
-                    var ext = (Path.GetExtension(path) ?? "").ToLowerInvariant();
-                    if (ext == ".json") jsonCandidates.Add(path);
-                    else if (ext == ".asi" || ext == ".dll" || ext == ".ini") asiCandidates.Add(path);
+                    var extractRoot = ExtractArchiveForImport(archive);
+                    CollectImportCandidates(extractRoot, jsonCandidates, asiCandidates, new List<string>(), packageCandidates);
+                    Log("Unpacked archive mod: " + Path.GetFileName(archive));
                 }
-                else if (Directory.Exists(path))
+                catch (Exception ex)
                 {
-                    jsonCandidates.AddRange(Directory.GetFiles(path, "*.json", SearchOption.AllDirectories));
-                    asiCandidates.AddRange(Directory.GetFiles(path, "*.asi", SearchOption.AllDirectories));
-                    asiCandidates.AddRange(Directory.GetFiles(path, "*.dll", SearchOption.AllDirectories));
-                    asiCandidates.AddRange(Directory.GetFiles(path, "*.ini", SearchOption.AllDirectories));
+                    packageCandidates.Add(archive);
+                    Log("Could not unpack archive mod " + Path.GetFileName(archive) + ": " + ex.Message);
                 }
             }
 
@@ -3392,6 +3625,29 @@ namespace CdJsonModManager
                 {
                     skipped++;
                     Log("Skipped invalid JSON mod " + Path.GetFileName(file) + ": " + ex.Message);
+                }
+            }
+
+            int packagesSkipped = 0;
+            foreach (var package in packageCandidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (File.Exists(package) && IsSupportedArchiveExtension(Path.GetExtension(package))) continue;
+                if (Directory.Exists(package) && IsRawOverlayDirectory(package))
+                {
+                    CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
+                    imported++;
+                    Log("Imported RAW overlay mod: " + Path.GetFileName(package));
+                }
+                else if (Directory.Exists(package) && IsBrowserModDirectory(package))
+                {
+                    CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
+                    imported++;
+                    Log("Imported Browser/UI mod: " + Path.GetFileName(package));
+                }
+                else
+                {
+                    packagesSkipped++;
+                    Log("Unrecognised mod package: " + Path.GetFileName(package));
                 }
             }
 
@@ -3423,7 +3679,179 @@ namespace CdJsonModManager
 
             LoadMods();
             if (asiImported > 0) RefreshAsi();
-            Log("Imported " + imported + " JSON, " + asiImported + " ASI/DLL/INI" + (skipped > 0 ? ", skipped " + skipped + "." : "."));
+            Log("Imported " + imported + " JSON, " + asiImported + " ASI/DLL/INI" + (packagesSkipped > 0 ? ", detected " + packagesSkipped + " package(s) not yet apply-ready" : "") + (skipped > 0 ? ", skipped " + skipped + "." : "."));
+        }
+
+        private static string SafePackageName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) name = "mod";
+            return Regex.Replace(name, @"[^A-Za-z0-9 ._()-]+", "_").Trim();
+        }
+
+        private static void CopyDirectory(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (var dir in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+            {
+                Directory.CreateDirectory(Path.Combine(destination, dir.Substring(source.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+            }
+            foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+            {
+                var rel = file.Substring(source.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var target = Path.Combine(destination, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(target));
+                File.Copy(file, target, true);
+            }
+        }
+
+        private void CollectImportCandidates(string path, List<string> jsonCandidates, List<string> asiCandidates, List<string> archiveCandidates, List<string> packageCandidates)
+        {
+            if (File.Exists(path))
+            {
+                var ext = (Path.GetExtension(path) ?? "").ToLowerInvariant();
+                if (ext == ".json") jsonCandidates.Add(path);
+                else if (IsSupportedArchiveExtension(ext)) archiveCandidates.Add(path);
+                else if (ext == ".asi" || ext == ".dll" || ext == ".ini") asiCandidates.Add(path);
+                return;
+            }
+
+            if (!Directory.Exists(path)) return;
+            if (IsRawOverlayDirectory(path) || IsBrowserModDirectory(path))
+            {
+                packageCandidates.Add(path);
+                return;
+            }
+
+            jsonCandidates.AddRange(Directory.GetFiles(path, "*.json", SearchOption.AllDirectories));
+            archiveCandidates.AddRange(Directory.GetFiles(path, "*.zip", SearchOption.AllDirectories));
+            archiveCandidates.AddRange(Directory.GetFiles(path, "*.7z", SearchOption.AllDirectories));
+            archiveCandidates.AddRange(Directory.GetFiles(path, "*.rar", SearchOption.AllDirectories));
+            asiCandidates.AddRange(Directory.GetFiles(path, "*.asi", SearchOption.AllDirectories));
+            asiCandidates.AddRange(Directory.GetFiles(path, "*.dll", SearchOption.AllDirectories));
+            asiCandidates.AddRange(Directory.GetFiles(path, "*.ini", SearchOption.AllDirectories));
+        }
+
+        private string ExtractArchiveForImport(string archivePath)
+        {
+            var importsRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".cache", "imports");
+            Directory.CreateDirectory(importsRoot);
+            var safeName = Regex.Replace(Path.GetFileNameWithoutExtension(archivePath) ?? "archive", @"[^A-Za-z0-9._-]+", "_");
+            var extractRoot = Path.Combine(importsRoot, safeName + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"));
+            Directory.CreateDirectory(extractRoot);
+            ExtractArchiveToDirectory(archivePath, extractRoot);
+            return extractRoot;
+        }
+
+        private static bool IsSupportedArchiveExtension(string ext)
+        {
+            ext = (ext ?? "").ToLowerInvariant();
+            return ext == ".zip" || ext == ".7z" || ext == ".rar";
+        }
+
+        private static void ExtractArchiveToDirectory(string archivePath, string extractRoot)
+        {
+            var ext = (Path.GetExtension(archivePath) ?? "").ToLowerInvariant();
+            if (ext == ".zip")
+            {
+                ExtractZipToDirectorySafe(archivePath, extractRoot);
+                return;
+            }
+            if (ext == ".7z" || ext == ".rar")
+            {
+                ExtractWithSevenZip(archivePath, extractRoot);
+                return;
+            }
+            throw new InvalidDataException("Unsupported archive type: " + ext);
+        }
+
+        private static void ExtractZipToDirectorySafe(string zipPath, string extractRoot)
+        {
+            using (var stream = File.OpenRead(zipPath))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+            {
+                foreach (var entry in archive.Entries)
+                {
+                    if (string.IsNullOrEmpty(entry.Name)) continue;
+                    var destination = Path.GetFullPath(Path.Combine(extractRoot, entry.FullName));
+                    if (!destination.StartsWith(Path.GetFullPath(extractRoot), StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("ZIP contains an unsafe path: " + entry.FullName);
+
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                    using (var input = entry.Open())
+                    using (var output = File.Create(destination))
+                    {
+                        input.CopyTo(output);
+                    }
+                }
+            }
+        }
+
+        private static void ExtractWithSevenZip(string archivePath, string extractRoot)
+        {
+            var sevenZip = LocateSevenZip();
+            if (string.IsNullOrEmpty(sevenZip))
+                throw new InvalidOperationException("7-Zip extractor was not found. Bundle tools\\7zip\\7z.exe with UJMM or install 7-Zip.");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = sevenZip,
+                Arguments = "x -y -o\"" + extractRoot + "\" -- \"" + archivePath + "\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = Path.GetDirectoryName(sevenZip)
+            };
+            using (var process = Process.Start(psi))
+            {
+                var stdout = process.StandardOutput.ReadToEnd();
+                var stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                    throw new InvalidDataException("7-Zip failed (" + process.ExitCode + "): " + (string.IsNullOrWhiteSpace(stderr) ? stdout : stderr));
+            }
+        }
+
+        private static string LocateSevenZip()
+        {
+            var appDir = AppDomain.CurrentDomain.BaseDirectory;
+            var candidates = new[]
+            {
+                Path.Combine(appDir, "tools", "7zip", "7z.exe"),
+                Path.Combine(appDir, "7z.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip", "7z.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "7-Zip", "7z.exe")
+            };
+            return candidates.FirstOrDefault(File.Exists);
+        }
+
+        private bool IsRawOverlayDirectory(string path)
+        {
+            if (IsRawOverlayPayloadDirectory(path)) return true;
+            if (!File.Exists(Path.Combine(path, "modinfo.json"))) return false;
+            return Directory.GetDirectories(path)
+                .Any(IsRawOverlayPayloadDirectory);
+        }
+
+        private bool IsRawOverlayPayloadDirectory(string path)
+        {
+            return Directory.Exists(path)
+                && Regex.IsMatch(Path.GetFileName(path), @"^\d{4}$")
+                && (File.Exists(Path.Combine(path, "0.pamt"))
+                    || File.Exists(Path.Combine(path, "0.paz"))
+                    || Directory.GetFiles(path, "*", SearchOption.AllDirectories).Any());
+        }
+
+        private bool IsBrowserModDirectory(string path)
+        {
+            var manifestPath = Path.Combine(path, "manifest.json");
+            if (!File.Exists(manifestPath)) return false;
+            try
+            {
+                var root = json.DeserializeObject(File.ReadAllText(manifestPath, Encoding.UTF8)) as Dictionary<string, object>;
+                return root != null && string.Equals(Convert.ToString(root.ContainsKey("format") ? root["format"] : ""), "crimson_browser_mod_v1", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
         }
 
         private void AddAsiFiles()
@@ -3537,21 +3965,49 @@ namespace CdJsonModManager
             var selected = mods.Where(mod => activeBoxes.ContainsKey(mod.Path) && activeBoxes[mod.Path].Checked).ToList();
             if (selected.Count == 0)
             {
-                MessageBox.Show("Enable at least one JSON mod first.", "No mods selected", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Enable at least one mod first.", "No mods selected", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
-            Log("Starting byte-guard verification...");
+            var validationCacheDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".cache", "validation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"));
+            Directory.CreateDirectory(validationCacheDir);
+            ResetFieldResolutions(selected);
+            ResolveFieldFormatMods(selected, validationCacheDir);
+            Log("Starting mod match verification...");
             var checkedCount = 0;
+            var overlayChecked = 0;
             var alreadyPatched = 0;
             var issues = new List<string>();
 
             foreach (var mod in selected)
             {
+                if (IsOverlayMod(mod))
+                {
+                    foreach (var folder in mod.OverlayFolders)
+                    {
+                        var files = OverlayFiles(folder).Where(File.Exists).ToList();
+                        if (files.Count == 0)
+                        {
+                            issues.Add("EMPTY OVERLAY [" + mod.Name + "] " + Path.GetFileName(folder));
+                            continue;
+                        }
+                        foreach (var file in files)
+                        {
+                            overlayChecked++;
+                            checkedCount++;
+                        }
+                    }
+                    continue;
+                }
                 var group = GroupFor(mod);
                 foreach (var change in mod.ChangesForGroup(group))
                 {
-                    var file = ArchiveExtractor.Extract(gamePath, change.GameFile, cacheDir, Log);
+                    if (!change.IsResolvedBytes)
+                    {
+                        issues.Add("UNRESOLVED [" + mod.Name + "] " + change.Label + " (" + change.GameFile + "). " + (change.ResolveError ?? "Field-format schema resolution failed."));
+                        continue;
+                    }
+                    var file = ArchiveExtractor.Extract(gamePath, change.GameFile, validationCacheDir, Log);
                     if (file == null || !File.Exists(file))
                     {
                         issues.Add("Missing extracted file: " + change.GameFile);
@@ -3585,8 +4041,8 @@ namespace CdJsonModManager
                 if (issues.Count == 0) checkGuards.SetState(checkedCount + " ok", BadgeKind.Ok);
                 else checkGuards.SetState(issues.Count + " mismatch", BadgeKind.Bad);
             }
-            if (checkOverlay != null) checkOverlay.SetState("0036", BadgeKind.Ok);
-            if (checkConflicts != null) checkConflicts.SetState(alreadyPatched + " already-patched", alreadyPatched == 0 ? BadgeKind.Neutral : BadgeKind.Warn);
+            if (checkOverlay != null) checkOverlay.SetState(overlayChecked == 0 ? "byte patches" : overlayChecked + " file" + (overlayChecked == 1 ? "" : "s"), BadgeKind.Ok);
+            if (checkConflicts != null) checkConflicts.SetState(alreadyPatched + " already applied", alreadyPatched == 0 ? BadgeKind.Neutral : BadgeKind.Ok);
 
             if (issues.Count == 0)
             {
@@ -3598,6 +4054,19 @@ namespace CdJsonModManager
                 foreach (var issue in issues.Take(80)) Log(issue);
                 if (issues.Count > 80) Log("... plus " + (issues.Count - 80) + " more issue(s).");
                 MessageBox.Show("Some patches don't match the installed game (likely a Crimson Desert update). Check the inspector log for details — those mods may need to be updated for this game version.", "Match failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private static void ResetFieldResolutions(IEnumerable<JsonMod> selected)
+        {
+            foreach (var change in selected.SelectMany(m => m.Changes))
+            {
+                if (string.IsNullOrWhiteSpace(change.FieldPath)) continue;
+                change.Offset = 0;
+                change.Original = "";
+                change.Patched = "";
+                change.IsResolvedBytes = false;
+                change.ResolveError = "";
             }
         }
 
@@ -3633,9 +4102,557 @@ namespace CdJsonModManager
             return IsGameFolder(gamePath) ? Path.Combine(gamePath, "_jmm_backups", "0008") : "";
         }
 
+        private sealed class FieldEntry
+        {
+            public string Name;
+            public int EntryOffset;
+            public int BlobStart;
+            public int BlobSize;
+        }
+
+        private static Tuple<Dictionary<string, FieldEntry>, List<FieldEntry>> BuildFieldEntryMap(byte[] pabgb, byte[] pabgh)
+        {
+            var list = new List<FieldEntry>();
+            bool shortHeader = false;
+            int count16 = BitConverter.ToUInt16(pabgh, 0);
+            int count;
+            int headerSize;
+            int recordSize;
+            if (count16 > 0 && 2 + count16 * 6 == pabgh.Length)
+            {
+                count = count16;
+                headerSize = 2;
+                recordSize = 6;
+                shortHeader = true;
+            }
+            else if (count16 > 0 && 2 + count16 * 8 <= pabgh.Length && 2 + count16 * 8 >= pabgh.Length - 16)
+            {
+                count = count16;
+                headerSize = 2;
+                recordSize = 8;
+            }
+            else
+            {
+                count = BitConverter.ToInt32(pabgh, 0);
+                headerSize = 4;
+                recordSize = 8;
+            }
+
+            int maxCount = Math.Max(0, (pabgh.Length - headerSize) / recordSize);
+            if (count > maxCount) count = maxCount;
+            int nameLenPrefix = shortHeader ? 2 : 4;
+            for (int i = 0; i < count; i++)
+            {
+                int recOff = headerSize + i * recordSize;
+                if (recOff + recordSize > pabgh.Length) break;
+                int entryOffset = BitConverter.ToInt32(pabgh, recOff + (shortHeader ? 2 : 4));
+                if (entryOffset < 0 || entryOffset + nameLenPrefix + 4 > pabgb.Length) continue;
+                int nameLen = BitConverter.ToInt32(pabgb, entryOffset + nameLenPrefix);
+                if (nameLen <= 0 || nameLen > 512 || entryOffset + nameLenPrefix + 4 + nameLen > pabgb.Length) continue;
+                string name;
+                try { name = Encoding.UTF8.GetString(pabgb, entryOffset + nameLenPrefix + 4, nameLen); }
+                catch { continue; }
+                int blobStart = entryOffset + nameLenPrefix + 4 + nameLen;
+                list.Add(new FieldEntry { Name = name, EntryOffset = entryOffset, BlobStart = blobStart });
+            }
+
+            list.Sort((a, b) => a.EntryOffset.CompareTo(b.EntryOffset));
+            for (int i = 0; i < list.Count; i++)
+            {
+                int next = i + 1 < list.Count ? list[i + 1].EntryOffset : pabgb.Length;
+                list[i].BlobSize = Math.Max(0, next - list[i].BlobStart);
+            }
+
+            var map = new Dictionary<string, FieldEntry>(StringComparer.Ordinal);
+            foreach (var entry in list)
+            {
+                if (!map.ContainsKey(entry.Name)) map[entry.Name] = entry;
+            }
+            return Tuple.Create(map, list);
+        }
+
+        private void ResolveFieldFormatMods(IEnumerable<JsonMod> selected)
+        {
+            ResolveFieldFormatMods(selected, cacheDir);
+        }
+
+        private void ResolveFieldFormatMods(IEnumerable<JsonMod> selected, string extractCacheDir)
+        {
+            var unresolved = selected.SelectMany(m => m.Changes).Where(c => !c.IsResolvedBytes && !string.IsNullOrWhiteSpace(c.FieldPath)).ToList();
+            if (unresolved.Count == 0) return;
+
+            var maps = new Dictionary<string, Tuple<byte[], Dictionary<string, FieldEntry>>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var change in unresolved)
+            {
+                try
+                {
+                    if (!string.Equals(change.Operation ?? "set", "set", StringComparison.OrdinalIgnoreCase))
+                    {
+                        change.ResolveError = "Unsupported field op '" + change.Operation + "'.";
+                        continue;
+                    }
+
+                    var gameFile = change.GameFile ?? "";
+                    if (!maps.ContainsKey(gameFile))
+                    {
+                        var dataPath = ArchiveExtractor.Extract(gamePath, gameFile, extractCacheDir, Log);
+                        var schemaFile = Path.ChangeExtension(gameFile, ".pabgh");
+                        var schemaPath = ArchiveExtractor.Extract(gamePath, schemaFile, extractCacheDir, Log);
+                        if (dataPath == null || !File.Exists(dataPath) || schemaPath == null || !File.Exists(schemaPath))
+                        {
+                            change.ResolveError = "Could not extract " + gameFile + " and its .pabgh companion.";
+                            continue;
+                        }
+                        var data = File.ReadAllBytes(dataPath);
+                        var schema = File.ReadAllBytes(schemaPath);
+                        var builtMap = BuildFieldEntryMap(data, schema).Item1;
+                        maps[gameFile] = Tuple.Create(data, builtMap);
+                    }
+
+                    var tuple = maps[gameFile];
+                    var bytes = tuple.Item1;
+                    var entryMap = tuple.Item2;
+                    FieldEntry entry;
+                    if (!entryMap.TryGetValue(change.EntryName ?? "", out entry))
+                    {
+                        change.ResolveError = "Entry '" + change.EntryName + "' was not found in " + gameFile + ".";
+                        continue;
+                    }
+
+                    int offset;
+                    int length;
+                    byte[] patched;
+                    if (TryResolveKnownField(change, entry, out offset, out length, out patched))
+                    {
+                        if (offset < 0 || offset + length > bytes.Length)
+                        {
+                            change.ResolveError = "Resolved field offset is outside " + gameFile + ".";
+                            continue;
+                        }
+                        change.Offset = offset;
+                        change.Original = BytesToHex(bytes.Skip(offset).Take(length).ToArray());
+                        change.Patched = BytesToHex(patched);
+                        change.IsResolvedBytes = true;
+                        change.ResolveError = "";
+                        if (!string.IsNullOrWhiteSpace(change.TargetDisplay))
+                        {
+                            change.TargetDisplay = change.TargetDisplay + "  @ +0x" + offset.ToString("X");
+                        }
+                    }
+                    else
+                    {
+                        change.ResolveError = "Unsupported field path '" + change.FieldPath + "' in " + Path.GetFileName(gameFile) + ".";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    change.ResolveError = ex.Message;
+                }
+            }
+
+            int resolved = unresolved.Count(c => c.IsResolvedBytes);
+            if (resolved > 0)
+            {
+                Log("Resolved " + resolved + " field-format patch(es) to byte offsets.");
+                RefreshPatchList();
+            }
+        }
+
+        private static bool TryResolveKnownField(PatchChange change, FieldEntry entry, out int offset, out int length, out byte[] patched)
+        {
+            offset = -1;
+            length = 0;
+            patched = null;
+
+            var file = Path.GetFileName(change.GameFile ?? "").ToLowerInvariant();
+            var field = (change.FieldPath ?? "").Trim();
+            if (file == "iteminfo.pabgb" && string.Equals(field, "max_stack_count", StringComparison.OrdinalIgnoreCase))
+            {
+                offset = entry.BlobStart;
+                length = 4;
+                patched = BitConverter.GetBytes(Convert.ToInt32(change.NewValue, System.Globalization.CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            var match = Regex.Match(field, @"^faction_schedule_list\[(\d+)\]\.flag_d$", RegexOptions.IgnoreCase);
+            if (file == "factionnode.pabgb" && match.Success)
+            {
+                int scheduleIndex = Convert.ToInt32(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+                int rel;
+                if (TryKnownFactionScheduleFlagOffset(change.EntryName ?? "", scheduleIndex, out rel))
+                {
+                    offset = entry.BlobStart + rel;
+                    length = 1;
+                    patched = new[] { Convert.ToByte(Convert.ToInt32(change.NewValue, System.Globalization.CultureInfo.InvariantCulture)) };
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryKnownFactionScheduleFlagOffset(string entryName, int scheduleIndex, out int rel)
+        {
+            rel = -1;
+            switch ((entryName ?? "") + "|" + scheduleIndex.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            {
+                case "Node_Her_ArboriaCraftshop|1": rel = 875; return true;
+                case "Node_Her_KarinQuarry|2": rel = 1249; return true;
+                case "Node_Her_PervinFort|1": rel = 873; return true;
+                case "Node_Her_TimberWagonFactory|1": rel = 879; return true;
+                case "Node_Her_TimberWagonFactory|2": rel = 1293; return true;
+                case "Node_Her_TimberWagonFactory|3": rel = 1708; return true;
+                case "Node_Her_InksworthPrinter|2": rel = 1229; return true;
+                case "Node_Her_KilndenKukuWorkshop|1": rel = 958; return true;
+                case "Node_Her_ReachwoodRuins|1": rel = 931; return true;
+                case "Node_Her_FlorindaleVillage|1": rel = 816; return true;
+                case "Node_Her_FlorindaleVillage|2": rel = 1226; return true;
+                case "Node_Her_WindHillFactory|1": rel = 936; return true;
+                case "Node_Her_WindHillFactory|2": rel = 1421; return true;
+                case "Node_Her_WindHillFactory|3": rel = 1906; return true;
+                case "Node_Cal_CalphadeRefinery|1": rel = 873; return true;
+                case "Node_Cal_CalphadeGunpowderFactory|1": rel = 888; return true;
+                case "Node_Cal_CalphadeGunpowderFactory|2": rel = 1308; return true;
+                case "Node_Her_SeniaVillage|1": rel = 884; return true;
+                case "Node_Dem_DemenissArmory|2": rel = 1243; return true;
+                case "Node_Dem_DemenissArmory|3": rel = 1656; return true;
+                case "Node_Dem_KingMountainDigSite|1": rel = 966; return true;
+                case "Node_Dem_SunsetDyehouse|1": rel = 822; return true;
+                case "Node_Dem_BulwarkWeaponFactory|2": rel = 1260; return true;
+                case "Node_Del_MarniWorkshop|1": rel = 891; return true;
+                case "Node_Del_MarniWorkshop|2": rel = 1299; return true;
+                case "Node_Del_MarniWorkshop|3": rel = 1707; return true;
+                case "Node_Neut_GorthakIronMaker|2": rel = 1325; return true;
+                case "Node_Neut_GorthakIronMaker|3": rel = 1738; return true;
+                case "Node_Neut_GorthakIronMaker|4": rel = 2151; return true;
+                case "Node_Neut_GorthakIronMaker|5": rel = 2564; return true;
+                case "Node_Neut_ZarganTankFactory|2": rel = 1247; return true;
+                case "Node_Neut_ZarganTankFactory|3": rel = 1660; return true;
+                case "Node_Del_SteelspikeWeaponStorage|2": rel = 1321; return true;
+                case "Node_Del_SteelspikeWeaponStorage|3": rel = 1746; return true;
+                case "Node_Del_SteelspikeWeaponStorage|4": rel = 2172; return true;
+                case "Node_Del_SteelspikeWeaponStorage|5": rel = 2597; return true;
+                case "Node_Del_RustfieldScrapyard|2": rel = 1297; return true;
+                case "Node_Del_RustfieldScrapyard|3": rel = 1710; return true;
+                case "Node_Del_RustfieldScrapyard|4": rel = 2123; return true;
+                case "Node_Del_RustfieldScrapyard|5": rel = 2536; return true;
+                case "Node_Del_WindCliffFort|1": rel = 881; return true;
+                case "Node_Del_SnakeTemple|1": rel = 935; return true;
+                case "Node_Del_MarniMechFactory|1": rel = 887; return true;
+                case "Node_Del_MarniMechFactory|2": rel = 1299; return true;
+                case "Node_Del_MarniMechFactory|3": rel = 1711; return true;
+                case "Node_Del_MarniMechFactory|4": rel = 2123; return true;
+                case "Node_Del_MarniAirLab|1": rel = 880; return true;
+                case "Node_Del_MarniAirLab|2": rel = 1286; return true;
+                case "Node_Del_MarniAirLab|3": rel = 1692; return true;
+                case "Node_Kwe_BeighenBasketMaker|1": rel = 805; return true;
+                case "Node_Kwe_LongleafTreeVillage|1": rel = 872; return true;
+                case "Node_Kwe_WindsongMountain|1": rel = 875; return true;
+                case "Node_Kwe_VerheimRuins|1": rel = 914; return true;
+                case "Node_Kwe_AshclawKeep|1": rel = 873; return true;
+                case "Node_Crim_DesertOasis|1": rel = 852; return true;
+                case "Node_Crim_SaltroadCamp|1": rel = 854; return true;
+                case "Node_Crim_HelmaraVillage|1": rel = 889; return true;
+                case "Node_Crim_HelmaraVillage|2": rel = 1292; return true;
+                case "Node_Crim_StompsandFortRuins|1": rel = 930; return true;
+                case "Node_Crim_FallenAbyss|1": rel = 912; return true;
+                case "Node_Crim_TimewornRuins|1": rel = 918; return true;
+            }
+            return false;
+        }
+
         private void ApplyOverlayStub()
         {
             ApplyByPazAppend();
+        }
+
+        private int ApplyOverlayPackages(List<JsonMod> selected)
+        {
+            var overlays = selected.Where(m => (m.FormatTag == "RAW" || m.FormatTag == "BROWSER") && m.OverlayFolders != null && m.OverlayFolders.Count > 0).ToList();
+            if (overlays.Count == 0) return 0;
+            var answer = MessageBox.Show("Install " + overlays.Count + " RAW/Browser overlay mod(s)?\r\n\r\nUJMM will copy compiled overlay folders as-is. Loose RAW/Browser folders will be packed into 0.paz + 0.pamt, then registered in meta\\0.papgt.", "Install overlays?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes) return 0;
+            var papgtLive = Path.Combine(gamePath, "meta", "0.papgt");
+            var papgtBackup = Path.GetFullPath(Path.Combine(PazBackupsRoot(), "..", "0.papgt.original"));
+            Directory.CreateDirectory(Path.GetDirectoryName(papgtBackup));
+            if (File.Exists(papgtLive) && !File.Exists(papgtBackup)) File.Copy(papgtLive, papgtBackup);
+
+            int installed = 0;
+            foreach (var mod in overlays)
+            {
+                foreach (var sourceFolder in mod.OverlayFolders)
+                {
+                    if (!Directory.Exists(sourceFolder)) continue;
+                    var wanted = Path.GetFileName(sourceFolder);
+                    var slot = NextOverlaySlot(wanted);
+                    var target = Path.Combine(gamePath, slot);
+                    bool packedLooseOverlay = false;
+                    if (IsCompiledOverlayFolder(sourceFolder))
+                    {
+                        CopyDirectory(sourceFolder, target);
+                    }
+                    else
+                    {
+                        BuildLooseOverlayPackage(sourceFolder, target);
+                        packedLooseOverlay = true;
+                    }
+                    var marker = Path.GetFullPath(Path.Combine(PazBackupsRoot(), "..", "overlay_folders.txt"));
+                    File.AppendAllText(marker, slot + "\r\n", Encoding.UTF8);
+                    var pamtPath = Path.Combine(target, "0.pamt");
+                    if (File.Exists(pamtPath))
+                    {
+                        uint pamtCrc = BitConverter.ToUInt32(File.ReadAllBytes(pamtPath), 0);
+                        File.WriteAllBytes(papgtLive, BuildPapgtWithMod(papgtLive, slot, pamtCrc));
+                        var installKind = packedLooseOverlay ? "packed loose overlay" : "compiled overlay";
+                        Log("Installed " + mod.FormatTag + " " + installKind + " " + mod.Name + " into " + slot + " (PAMT CRC 0x" + pamtCrc.ToString("X8") + ").");
+                    }
+                    else
+                    {
+                        Log("Installed " + mod.FormatTag + " loose overlay " + mod.Name + " into " + slot + ".");
+                    }
+                    installed++;
+                }
+            }
+            return installed;
+        }
+
+        private static bool IsCompiledOverlayFolder(string folder)
+        {
+            return File.Exists(Path.Combine(folder, "0.pamt"))
+                && Directory.GetFiles(folder, "*.paz", SearchOption.TopDirectoryOnly).Length > 0;
+        }
+
+        private sealed class LooseOverlayFile
+        {
+            public string SourcePath;
+            public string RelativePath;
+            public string DirectoryPath;
+            public string FileName;
+            public byte[] PackedBytes;
+            public uint OriginalSize;
+            public uint Offset;
+            public uint FileNameOffset;
+        }
+
+        private static void BuildLooseOverlayPackage(string sourceFolder, string targetFolder)
+        {
+            var files = Directory.GetFiles(sourceFolder, "*", SearchOption.AllDirectories)
+                .Where(path =>
+                {
+                    var name = Path.GetFileName(path);
+                    if (string.Equals(name, "0.pamt", StringComparison.OrdinalIgnoreCase)) return false;
+                    if (string.Equals(Path.GetExtension(name), ".paz", StringComparison.OrdinalIgnoreCase)) return false;
+                    if (string.Equals(name, "manifest.json", StringComparison.OrdinalIgnoreCase)) return false;
+                    if (string.Equals(name, "modinfo.json", StringComparison.OrdinalIgnoreCase)) return false;
+                    return true;
+                })
+                .Select(path =>
+                {
+                    var rel = path.Substring(sourceFolder.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
+                    return new LooseOverlayFile
+                    {
+                        SourcePath = path,
+                        RelativePath = rel,
+                        DirectoryPath = NormalizeOverlayDirectory(Path.GetDirectoryName(rel) ?? ""),
+                        FileName = Path.GetFileName(rel)
+                    };
+                })
+                .Where(file => !string.IsNullOrWhiteSpace(file.RelativePath) && !string.IsNullOrWhiteSpace(file.FileName))
+                .OrderBy(file => file.DirectoryPath, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(file => file.FileName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (files.Count == 0) throw new InvalidOperationException("Loose overlay folder has no files to pack: " + sourceFolder);
+
+            Directory.CreateDirectory(targetFolder);
+            var paz = new MemoryStream();
+            foreach (var file in files)
+            {
+                var raw = File.ReadAllBytes(file.SourcePath);
+                file.OriginalSize = checked((uint)raw.Length);
+                file.PackedBytes = ArchiveExtractor.Lz4BlockCompress(raw);
+                var aligned = AlignUp((uint)paz.Position, 16);
+                while (paz.Position < aligned) paz.WriteByte(0);
+                file.Offset = checked((uint)paz.Position);
+                paz.Write(file.PackedBytes, 0, file.PackedBytes.Length);
+            }
+
+            var pazBytes = paz.ToArray();
+            File.WriteAllBytes(Path.Combine(targetFolder, "0.paz"), pazBytes);
+            var pamtBytes = BuildLooseOverlayPamt(files, pazBytes);
+            File.WriteAllBytes(Path.Combine(targetFolder, "0.pamt"), pamtBytes);
+        }
+
+        private static string NormalizeOverlayDirectory(string path)
+        {
+            return (path ?? "").Replace('\\', '/').Trim('/');
+        }
+
+        private static uint AlignUp(uint value, uint alignment)
+        {
+            if (alignment == 0) return value;
+            var remainder = value % alignment;
+            return remainder == 0 ? value : value + (alignment - remainder);
+        }
+
+        private static byte[] BuildLooseOverlayPamt(List<LooseOverlayFile> files, byte[] pazBytes)
+        {
+            const uint OverlayPamtUnknown = 0x610E0232u;
+            const ushort CompressionLz4 = 2;
+
+            var directoryBlock = new MemoryStream();
+            var dirWriter = new BinaryWriter(directoryBlock, Encoding.UTF8);
+            var segmentOffsets = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dirPath in files.Select(file => file.DirectoryPath).Where(path => path.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                var parts = dirPath.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    var partial = string.Join("/", parts.Take(i + 1).ToArray());
+                    if (segmentOffsets.ContainsKey(partial)) continue;
+                    var offset = checked((uint)directoryBlock.Position);
+                    segmentOffsets[partial] = offset;
+                    uint parent = i == 0 ? 0xFFFFFFFFu : segmentOffsets[string.Join("/", parts.Take(i).ToArray())];
+                    var segmentName = i == 0 ? parts[i] : "/" + parts[i];
+                    WritePamtNameNode(dirWriter, parent, segmentName);
+                }
+            }
+
+            var fileNameBlock = new MemoryStream();
+            var fileNameWriter = new BinaryWriter(fileNameBlock, Encoding.UTF8);
+            var folderRows = new List<Tuple<uint, uint, uint, uint>>();
+            var orderedFiles = new List<LooseOverlayFile>();
+            uint fileStart = 0;
+            foreach (var group in files.GroupBy(file => file.DirectoryPath, StringComparer.OrdinalIgnoreCase).OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var groupFiles = group.OrderBy(file => file.FileName, StringComparer.OrdinalIgnoreCase).ToList();
+                foreach (var file in groupFiles)
+                {
+                    file.FileNameOffset = checked((uint)fileNameBlock.Position);
+                    WritePamtNameNode(fileNameWriter, 0xFFFFFFFFu, file.FileName);
+                    orderedFiles.Add(file);
+                }
+                uint folderHash = string.IsNullOrEmpty(group.Key) ? 0u : ArchiveExtractor.PaChecksum(Encoding.UTF8.GetBytes(group.Key), 0, Encoding.UTF8.GetByteCount(group.Key));
+                uint dirOffset = string.IsNullOrEmpty(group.Key) ? 0xFFFFFFFFu : segmentOffsets[group.Key];
+                folderRows.Add(Tuple.Create(folderHash, dirOffset, fileStart, checked((uint)groupFiles.Count)));
+                fileStart += checked((uint)groupFiles.Count);
+            }
+
+            var body = new MemoryStream();
+            var bw = new BinaryWriter(body, Encoding.UTF8);
+            bw.Write((uint)1);
+            bw.Write(OverlayPamtUnknown);
+            bw.Write((uint)0);
+            bw.Write(ArchiveExtractor.PaChecksum(pazBytes, 0, pazBytes.Length));
+            bw.Write(checked((uint)pazBytes.Length));
+            var dirBytes = directoryBlock.ToArray();
+            bw.Write(checked((uint)dirBytes.Length));
+            bw.Write(dirBytes);
+            var nameBytes = fileNameBlock.ToArray();
+            bw.Write(checked((uint)nameBytes.Length));
+            bw.Write(nameBytes);
+            bw.Write(checked((uint)folderRows.Count));
+            foreach (var folder in folderRows)
+            {
+                bw.Write(folder.Item1);
+                bw.Write(folder.Item2);
+                bw.Write(folder.Item3);
+                bw.Write(folder.Item4);
+            }
+            bw.Write(checked((uint)orderedFiles.Count));
+            foreach (var file in orderedFiles)
+            {
+                bw.Write(file.FileNameOffset);
+                bw.Write(file.Offset);
+                bw.Write(checked((uint)file.PackedBytes.Length));
+                bw.Write(file.OriginalSize);
+                bw.Write((ushort)0);
+                bw.Write(CompressionLz4);
+            }
+
+            var bodyBytes = body.ToArray();
+            var output = new MemoryStream();
+            var outw = new BinaryWriter(output, Encoding.UTF8);
+            outw.Write(ArchiveExtractor.PaChecksum(bodyBytes, 8, bodyBytes.Length - 8));
+            output.Write(bodyBytes, 0, bodyBytes.Length);
+            return output.ToArray();
+        }
+
+        private static void WritePamtNameNode(BinaryWriter writer, uint parent, string name)
+        {
+            var bytes = Encoding.UTF8.GetBytes(name);
+            if (bytes.Length > byte.MaxValue) throw new InvalidOperationException("PAMT path segment is too long: " + name);
+            writer.Write(parent);
+            writer.Write((byte)bytes.Length);
+            writer.Write(bytes);
+        }
+
+        private string NextOverlaySlot(string preferred)
+        {
+            int n;
+            if (!int.TryParse(preferred, out n)) n = 36;
+            while (Directory.Exists(Path.Combine(gamePath, n.ToString("0000")))) n++;
+            return n.ToString("0000");
+        }
+
+        private static byte[] BuildPapgtWithMod(string papgtPath, string modDirName, uint pamtCrc)
+        {
+            var data = File.ReadAllBytes(papgtPath);
+            int count = data[8];
+            int stringBase = 12 + count * 12 + 4;
+            var entries = new List<Tuple<byte, ushort, byte, uint, string>>();
+            for (int i = 0; i < count; i++)
+            {
+                int off = 12 + i * 12;
+                byte optional = data[off];
+                ushort lang = BitConverter.ToUInt16(data, off + 1);
+                byte zero = data[off + 3];
+                uint nameOffset = BitConverter.ToUInt32(data, off + 4);
+                uint crc = BitConverter.ToUInt32(data, off + 8);
+                int pos = stringBase + (int)nameOffset;
+                int len = 0;
+                while (pos + len < data.Length && data[pos + len] != 0) len++;
+                entries.Add(Tuple.Create(optional, lang, zero, crc, Encoding.ASCII.GetString(data, pos, len)));
+            }
+            entries.RemoveAll(e => string.Equals(e.Item5, modDirName, StringComparison.OrdinalIgnoreCase));
+            entries.Insert(0, Tuple.Create((byte)0, (ushort)16383, (byte)0, pamtCrc, modDirName));
+
+            var strings = new MemoryStream();
+            var nameOffsets = new List<uint>();
+            foreach (var e in entries)
+            {
+                nameOffsets.Add((uint)strings.Position);
+                var nameBytes = Encoding.ASCII.GetBytes(e.Item5);
+                strings.Write(nameBytes, 0, nameBytes.Length);
+                strings.WriteByte(0);
+            }
+
+            var body = new MemoryStream();
+            var bw = new BinaryWriter(body);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var e = entries[i];
+                bw.Write(e.Item1);
+                bw.Write(e.Item2);
+                bw.Write(e.Item3);
+                bw.Write(nameOffsets[i]);
+                bw.Write(e.Item4);
+            }
+            var stringBytes = strings.ToArray();
+            bw.Write((uint)stringBytes.Length);
+            bw.Write(stringBytes);
+            var bodyBytes = body.ToArray();
+            uint headerCrc = ArchiveExtractor.PaChecksum(bodyBytes, 0, bodyBytes.Length);
+
+            var output = new MemoryStream();
+            var outw = new BinaryWriter(output);
+            outw.Write(BitConverter.ToUInt32(data, 0));
+            outw.Write(headerCrc);
+            outw.Write((byte)entries.Count);
+            outw.Write(BitConverter.ToUInt16(data, 9));
+            outw.Write(data[11]);
+            output.Write(bodyBytes, 0, bodyBytes.Length);
+            return output.ToArray();
         }
 
         private sealed class ApplyWork
@@ -3663,6 +4680,8 @@ namespace CdJsonModManager
                 MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+            ResolveFieldFormatMods(selected);
+            int overlayInstalled = ApplyOverlayPackages(selected);
 
             // Group changes by gameFile across all active mods (using each mod's selected preset).
             // Skip patches the user has unchecked in the patch list (disabledPatches).
@@ -3670,6 +4689,7 @@ namespace CdJsonModManager
             int skippedDisabled = 0;
             foreach (var mod in selected)
             {
+                if (mod.FormatTag == "RAW" || mod.FormatTag == "BROWSER") continue;
                 var group = GroupFor(mod);
                 int idx = 0;
                 foreach (var c in mod.ChangesForGroup(group))
@@ -3677,6 +4697,7 @@ namespace CdJsonModManager
                     var key = PatchKey(mod, group, idx);
                     idx++;
                     if (string.IsNullOrEmpty(c.GameFile)) continue;
+                    if (!c.IsResolvedBytes) { skippedDisabled++; Log("Skipped unresolved field-format intent [" + mod.Name + "]: " + c.Label); continue; }
                     if (disabledPatches.Contains(key)) { skippedDisabled++; continue; }
                     if (!byGameFile.ContainsKey(c.GameFile)) byGameFile[c.GameFile] = new List<PatchChange>();
                     byGameFile[c.GameFile].Add(c);
@@ -3685,7 +4706,11 @@ namespace CdJsonModManager
             if (skippedDisabled > 0) Log("Skipped " + skippedDisabled + " patch(es) the user disabled in the Patch Board.");
             if (byGameFile.Count == 0)
             {
-                MessageBox.Show("Selected mods have no patches with a target game_file.", "Nothing to apply", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (overlayInstalled > 0)
+                {
+                    MessageBox.Show("Installed " + overlayInstalled + " overlay package(s).", "Mods applied", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else MessageBox.Show("Selected mods have no patches with a target game_file.", "Nothing to apply", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -4086,6 +5111,25 @@ namespace CdJsonModManager
                 catch (Exception ex) { Log("papgt restore failed: " + ex.Message); }
             }
 
+            var overlayMarker = Path.GetFullPath(Path.Combine(backupRoot, "..", "overlay_folders.txt"));
+            if (File.Exists(overlayMarker))
+            {
+                foreach (var slot in File.ReadAllLines(overlayMarker).Select(s => s.Trim()).Where(s => Regex.IsMatch(s, @"^\d{4}$")).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var dir = Path.Combine(gamePath, slot);
+                        if (Directory.Exists(dir))
+                        {
+                            Directory.Delete(dir, true);
+                            Log("Removed overlay folder " + slot + ".");
+                            restored++;
+                        }
+                    }
+                    catch (Exception ex) { Log("Overlay remove failed for " + slot + ": " + ex.Message); }
+                }
+            }
+
             // Truncate each tracked .paz back to its recorded original length
             foreach (var lengthFile in Directory.GetFiles(backupRoot, "*.length.original"))
             {
@@ -4119,6 +5163,7 @@ namespace CdJsonModManager
             {
                 if (File.Exists(pamtBackup)) File.Delete(pamtBackup);
                 if (File.Exists(papgtBackupRevert)) File.Delete(papgtBackupRevert);
+                if (File.Exists(overlayMarker)) File.Delete(overlayMarker);
                 foreach (var lf in Directory.GetFiles(backupRoot, "*.length.original")) File.Delete(lf);
             }
             catch { }
@@ -4149,6 +5194,7 @@ namespace CdJsonModManager
                 foreach (var c in mod.ChangesForGroup(group))
                 {
                     if (string.IsNullOrEmpty(c.GameFile)) continue;
+                    if (!c.IsResolvedBytes) continue;
                     if (!byGameFile.ContainsKey(c.GameFile)) byGameFile[c.GameFile] = new List<PatchChange>();
                     byGameFile[c.GameFile].Add(c);
                 }
@@ -5396,13 +6442,16 @@ namespace CdJsonModManager
         public string Version { get; private set; }
         public string Description { get; private set; }
         public string Author { get; private set; }
+        public string FormatTag { get; private set; }
         public List<PatchChange> Changes { get; private set; }
         public List<string> Groups { get; private set; }
+        public List<string> OverlayFolders { get; private set; }
 
         public static JsonMod Load(string path, JavaScriptSerializer json)
         {
             var root = json.DeserializeObject(File.ReadAllText(path, Encoding.UTF8)) as Dictionary<string, object>;
             if (root == null) throw new InvalidDataException("JSON root is not an object.");
+            if (IsFieldFormat(root)) return LoadFieldFormat(path, root);
 
             var mod = new JsonMod
             {
@@ -5411,8 +6460,10 @@ namespace CdJsonModManager
                 Version = GetString(root, "version", ""),
                 Description = GetString(root, "description", ""),
                 Author = GetString(root, "author", ""),
+                FormatTag = "JSON",
                 Changes = new List<PatchChange>(),
-                Groups = new List<string>()
+                Groups = new List<string>(),
+                OverlayFolders = new List<string>()
             };
 
             if (root.ContainsKey("patches") && root["patches"] is object[] patches)
@@ -5433,15 +6484,167 @@ namespace CdJsonModManager
                             Offset = Convert.ToInt32(change["offset"]),
                             Label = GetString(change, "label", ""),
                             Original = GetString(change, "original", "").Replace(" ", ""),
-                            Patched = GetString(change, "patched", "").Replace(" ", "")
+                            Patched = GetString(change, "patched", "").Replace(" ", ""),
+                            IsResolvedBytes = true
                         });
                     }
+                }
+            }
+            else if (root.ContainsKey("changes") && root["changes"] is object[] topLevelChanges)
+            {
+                var gameFile = GetString(root, "game_file", GetString(root, "file", ""));
+                foreach (var changeObj in topLevelChanges)
+                {
+                    var change = changeObj as Dictionary<string, object>;
+                    if (change == null) continue;
+                    mod.Changes.Add(new PatchChange
+                    {
+                        GameFile = gameFile,
+                        Offset = Convert.ToInt32(change["offset"]),
+                        Label = GetString(change, "label", ""),
+                        Original = GetString(change, "original", "").Replace(" ", ""),
+                        Patched = GetString(change, "patched", "").Replace(" ", ""),
+                        IsResolvedBytes = true
+                    });
                 }
             }
 
             mod.Groups = mod.Changes.Select(change => change.Group).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (mod.Groups.Count == 0) mod.Groups.Add("All");
             return mod;
+        }
+
+        private static bool IsFieldFormat(Dictionary<string, object> root)
+        {
+            if (!root.ContainsKey("format")) return false;
+            try
+            {
+                if (Convert.ToInt32(root["format"]) != 3) return false;
+            }
+            catch { return false; }
+            return root.ContainsKey("targets") || (root.ContainsKey("target") && root.ContainsKey("intents"));
+        }
+
+        private static JsonMod LoadFieldFormat(string path, Dictionary<string, object> root)
+        {
+            var info = root.ContainsKey("modinfo") ? root["modinfo"] as Dictionary<string, object> : null;
+            var mod = new JsonMod
+            {
+                Path = path,
+                Name = info != null ? GetString(info, "title", System.IO.Path.GetFileNameWithoutExtension(path)) : System.IO.Path.GetFileNameWithoutExtension(path),
+                Version = info != null ? GetString(info, "version", "") : GetString(root, "version", ""),
+                Description = info != null ? GetString(info, "description", "") : GetString(root, "description", ""),
+                Author = info != null ? GetString(info, "author", "") : GetString(root, "author", ""),
+                FormatTag = "FIELDS",
+                Changes = new List<PatchChange>(),
+                Groups = new List<string>(),
+                OverlayFolders = new List<string>()
+            };
+
+            if (root.ContainsKey("targets") && root["targets"] is object[] targets)
+            {
+                foreach (var targetObj in targets)
+                {
+                    var target = targetObj as Dictionary<string, object>;
+                    if (target == null) continue;
+                    AddFieldIntents(mod, GetString(target, "file", ""), target.ContainsKey("intents") ? target["intents"] as object[] : null);
+                }
+            }
+            else
+            {
+                AddFieldIntents(mod, GetString(root, "target", ""), root.ContainsKey("intents") ? root["intents"] as object[] : null);
+            }
+
+            mod.Groups = mod.Changes.Select(change => change.Group).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (mod.Groups.Count == 0) mod.Groups.Add("All");
+            return mod;
+        }
+
+        public static JsonMod LoadOverlayDirectory(string path, JavaScriptSerializer json, string formatTag)
+        {
+            Dictionary<string, object> info = null;
+            string metadata = formatTag == "BROWSER" ? System.IO.Path.Combine(path, "manifest.json") : System.IO.Path.Combine(path, "modinfo.json");
+            if (File.Exists(metadata)) info = json.DeserializeObject(File.ReadAllText(metadata, Encoding.UTF8)) as Dictionary<string, object>;
+            var mod = new JsonMod
+            {
+                Path = path,
+                Name = info != null ? GetString(info, formatTag == "BROWSER" ? "title" : "name", System.IO.Path.GetFileName(path)) : System.IO.Path.GetFileName(path),
+                Version = info != null ? GetString(info, "version", "") : "",
+                Description = info != null ? GetString(info, "description", "") : "",
+                Author = info != null ? GetString(info, "author", "") : "",
+                FormatTag = formatTag,
+                Changes = new List<PatchChange>(),
+                Groups = new List<string> { "All" },
+                OverlayFolders = new List<string>()
+            };
+
+            var root = path;
+            if (formatTag == "RAW"
+                && Regex.IsMatch(System.IO.Path.GetFileName(path), @"^\d{4}$")
+                && (File.Exists(System.IO.Path.Combine(path, "0.pamt"))
+                    || File.Exists(System.IO.Path.Combine(path, "0.paz"))
+                    || Directory.GetFiles(path, "*", SearchOption.AllDirectories).Any()))
+            {
+                mod.OverlayFolders.Add(path);
+                if (string.IsNullOrWhiteSpace(mod.Description)) mod.Description = "Raw folder mod";
+                return mod;
+            }
+            if (formatTag == "BROWSER" && info != null)
+            {
+                root = System.IO.Path.Combine(path, GetString(info, "files_dir", "files"));
+            }
+            if (Directory.Exists(root))
+            {
+                foreach (var dir in Directory.GetDirectories(root))
+                {
+                    var name = System.IO.Path.GetFileName(dir);
+                    if (Regex.IsMatch(name, @"^\d{4}$")) mod.OverlayFolders.Add(dir);
+                }
+            }
+            if (mod.OverlayFolders.Count == 1)
+            {
+                if (string.IsNullOrWhiteSpace(mod.Description) && info != null)
+                    mod.Description = GetString(info, "title", "");
+                mod.Name = System.IO.Path.GetFileName(mod.OverlayFolders[0]);
+            }
+            return mod;
+        }
+
+        private static void AddFieldIntents(JsonMod mod, string gameFile, object[] intents)
+        {
+            if (intents == null) return;
+            foreach (var intentObj in intents)
+            {
+                var intent = intentObj as Dictionary<string, object>;
+                if (intent == null) continue;
+
+                var entry = GetString(intent, "entry", "");
+                var key = intent.ContainsKey("key") && intent["key"] != null ? Convert.ToString(intent["key"]) : "";
+                var field = GetString(intent, "field", "");
+                var op = GetString(intent, "op", "set");
+                var newValue = intent.ContainsKey("new") && intent["new"] != null ? Convert.ToString(intent["new"]) : "";
+                var labelParts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(entry)) labelParts.Add(entry);
+                if (!string.IsNullOrWhiteSpace(field)) labelParts.Add(field);
+                if (!string.IsNullOrWhiteSpace(op)) labelParts.Add(op + " " + newValue);
+                var label = labelParts.Count > 0 ? string.Join(" · ", labelParts.ToArray()) : "Field intent";
+
+                mod.Changes.Add(new PatchChange
+                {
+                    GameFile = gameFile,
+                    Offset = 0,
+                    Label = label,
+                    Original = "",
+                    Patched = "",
+                    IsResolvedBytes = false,
+                    FieldPath = field,
+                    EntryName = entry,
+                    EntryKey = key,
+                    Operation = op,
+                    NewValue = newValue,
+                    TargetDisplay = System.IO.Path.GetFileName(gameFile) + " · " + field + (string.IsNullOrWhiteSpace(newValue) ? "" : " → " + newValue)
+                });
+            }
         }
 
         public IEnumerable<PatchChange> ChangesForGroup(string group)
@@ -5464,6 +6667,14 @@ namespace CdJsonModManager
         public string Label;
         public string Original;
         public string Patched;
+        public bool IsResolvedBytes;
+        public string FieldPath;
+        public string EntryName;
+        public string EntryKey;
+        public string Operation;
+        public string NewValue;
+        public string TargetDisplay;
+        public string ResolveError;
 
         public string Group
         {
