@@ -1403,6 +1403,10 @@ namespace CdJsonModManager
             asiList.Columns.Add("Status", 130);
             asiList.Columns.Add("Size", 100);
             asiList.SizeChanged += (s, e) => FitListColumns(asiList, new[] { 0.6f, 0.25f, 0.15f });
+            var asiMenu = new ContextMenuStrip();
+            asiMenu.Items.Add("Toggle selected", null, (s, e) => ToggleSelectedAsi());
+            asiMenu.Items.Add("Remove selected from manager", null, (s, e) => RemoveSelectedAsi());
+            asiList.ContextMenuStrip = asiMenu;
             listLayout.Controls.Add(asiList, 0, 1);
 
             layout.Controls.Add(listHost, 0, 1);
@@ -2613,12 +2617,12 @@ namespace CdJsonModManager
                 var capturedMod = mod;
                 var card = new RoundedPanel
                 {
-                    CornerRadius = 16,
+                    CornerRadius = 12,
                     BorderWidth = 1,
                     Width = Math.Max(260, modCardsHost.ClientSize.Width - 4),
-                    Height = 96,
-                    Margin = new Padding(0, 0, 0, 8),
-                    Padding = new Padding(12, 9, 12, 9),
+                    Height = 78,
+                    Margin = new Padding(0, 0, 0, 6),
+                    Padding = new Padding(10, 7, 10, 7),
                     Cursor = Cursors.Hand
                 };
                 card.GradientTopOverride = Color.FromArgb(56, 0, 0, 0);
@@ -2634,7 +2638,7 @@ namespace CdJsonModManager
                 // Title row is tall enough to fully contain the 20px FlatCheck plus a couple of pixels
                 // of breathing room on top/bottom - the previous 24px caused the box to be clipped where
                 // the description row began.
-                stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+                stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
                 stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 card.Controls.Add(stack);
 
@@ -2666,7 +2670,7 @@ namespace CdJsonModManager
                 {
                     Text = mod.Name,
                     Dock = DockStyle.Fill,
-                    Font = new Font("Trebuchet MS", 9.5f, FontStyle.Bold),
+                    Font = new Font("Trebuchet MS", 9.0f, FontStyle.Bold),
                     BackColor = Color.Transparent,
                     AutoEllipsis = true,
                     TextAlign = ContentAlignment.MiddleLeft,
@@ -2679,7 +2683,7 @@ namespace CdJsonModManager
                     Text = mod.FormatTag,
                     DotColor = Color.Empty,
                     BorderlessTag = true,
-                    Font = new Font("Consolas", 7.5f, FontStyle.Bold),
+                    Font = new Font("Consolas", 7.0f, FontStyle.Bold),
                     Height = 18,
                     Anchor = AnchorStyles.Right,
                     Margin = new Padding(0, 4, 0, 0),
@@ -2703,10 +2707,9 @@ namespace CdJsonModManager
 
                 var metaLabel = new Label
                 {
-                    Text = !string.IsNullOrWhiteSpace(mod.Description) ? mod.Description :
-                           (string.IsNullOrWhiteSpace(mod.Version + mod.Author) ? mod.FormatTag + " mod" : (mod.Version + " by " + mod.Author).Trim()),
+                    Text = ModCardMetaText(mod),
                     Dock = DockStyle.Fill,
-                    Font = new Font("Consolas", 7.5f),
+                    Font = new Font("Consolas", 7.0f),
                     ForeColor = Color.FromArgb(169, 157, 124),
                     BackColor = Color.Transparent,
                     AutoEllipsis = true,
@@ -2743,7 +2746,7 @@ namespace CdJsonModManager
                     });
                 }
                 menu.Items.Add("-");
-                menu.Items.Add("Delete from manager", null, (s, e) => DeleteMod(capturedMod));
+                menu.Items.Add("Delete from manager", null, (s, e) => DeleteSelectedMods(capturedMod));
                 card.ContextMenuStrip = menu;
                 nameLabel.ContextMenuStrip = menu;
                 metaLabel.ContextMenuStrip = menu;
@@ -2817,6 +2820,17 @@ namespace CdJsonModManager
                 if (bh) return 1;
                 return string.Compare(an, bn, StringComparison.OrdinalIgnoreCase);
             });
+        }
+
+        private static string ModCardMetaText(JsonMod mod)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(mod.Version)) parts.Add("v" + mod.Version.Trim().TrimStart('v', 'V'));
+            if (!string.IsNullOrWhiteSpace(mod.Author)) parts.Add("by " + mod.Author.Trim());
+            var prefix = string.Join(" - ", parts.ToArray());
+            var body = !string.IsNullOrWhiteSpace(mod.Description) ? mod.Description.Trim() : mod.FormatTag + " mod";
+            if (string.IsNullOrWhiteSpace(prefix)) return body;
+            return prefix + " - " + body;
         }
 
         private void SaveModOrder()
@@ -3368,7 +3382,7 @@ namespace CdJsonModManager
                 if (focused != null && string.Equals(mod.Path, focused.Path, StringComparison.OrdinalIgnoreCase)) focusedAlreadyActive = true;
                 if (IsOverlayMod(mod))
                 {
-                    foreach (var folder in mod.OverlayFolders)
+                    foreach (var folder in OverlayFoldersForGroup(mod, GroupFor(mod)))
                     {
                         foreach (var file in OverlayFiles(folder))
                         {
@@ -3423,7 +3437,7 @@ namespace CdJsonModManager
             {
                 if (IsOverlayMod(focused))
                 {
-                    foreach (var folder in focused.OverlayFolders)
+                    foreach (var folder in OverlayFoldersForGroup(focused, GroupFor(focused)))
                     {
                         foreach (var file in OverlayFiles(folder))
                         {
@@ -3510,6 +3524,19 @@ namespace CdJsonModManager
                 && mod.OverlayFolders.Count > 0;
         }
 
+        private static IEnumerable<string> OverlayFoldersForGroup(JsonMod mod, string group)
+        {
+            if (mod == null || mod.OverlayFolders == null) return Enumerable.Empty<string>();
+            if (mod.OverlayGroupByFolder == null || mod.OverlayGroupByFolder.Count == 0) return mod.OverlayFolders;
+            if (string.IsNullOrWhiteSpace(group) || string.Equals(group, "All", StringComparison.OrdinalIgnoreCase)) return mod.OverlayFolders;
+            return mod.OverlayFolders.Where(folder =>
+            {
+                string g;
+                return mod.OverlayGroupByFolder.TryGetValue(folder, out g)
+                    && string.Equals(g, group, StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
         private static string OverlayUnitText(JsonMod mod)
         {
             var count = mod != null && mod.OverlayFolders != null ? mod.OverlayFolders.Count : 0;
@@ -3584,38 +3611,63 @@ namespace CdJsonModManager
 
         private void DeleteMod(JsonMod mod)
         {
-            var answer = MessageBox.Show("Delete this JSON mod from the manager?\r\n\r\n" + mod.Name + "\r\n\r\nThis removes it from mods/ but does not edit game files.", "Delete mod", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            DeleteMods(new[] { mod });
+        }
+
+        private void DeleteSelectedMods(JsonMod fallback)
+        {
+            var selected = mods
+                .Where(m => activeBoxes.ContainsKey(m.Path) && activeBoxes[m.Path].Checked)
+                .ToList();
+            if (selected.Count <= 1 || !selected.Any(m => string.Equals(m.Path, fallback.Path, StringComparison.OrdinalIgnoreCase)))
+                selected = new List<JsonMod> { fallback };
+            DeleteMods(selected);
+        }
+
+        private void DeleteMods(IEnumerable<JsonMod> modsToDelete)
+        {
+            var targets = modsToDelete
+                .Where(m => m != null)
+                .GroupBy(m => m.Path, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
+            if (targets.Count == 0) return;
+
+            var names = string.Join("\r\n", targets.Take(8).Select(m => "  * " + m.Name).ToArray());
+            if (targets.Count > 8) names += "\r\n  ...";
+            var answer = MessageBox.Show("Delete " + targets.Count + " mod" + (targets.Count == 1 ? "" : "s") + " from the manager?\r\n\r\n" + names + "\r\n\r\nThis removes them from mods/ but does not edit game files.", "Delete mod", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (answer != DialogResult.Yes) return;
 
             try
             {
-                if (File.Exists(mod.Path)) File.Delete(mod.Path);
-                else if (Directory.Exists(mod.Path)) Directory.Delete(mod.Path, true);
-                Log("Deleted mod: " + mod.Name + ".");
-
-                // Surgical UI update - drop just this card instead of rebuilding the whole list (which flickers + scroll-resets).
-                if (modCards.ContainsKey(mod.Path))
+                foreach (var mod in targets)
                 {
-                    var card = modCards[mod.Path];
-                    if (modCardsHost != null) modCardsHost.Controls.Remove(card);
-                    card.Dispose();
-                    modCards.Remove(mod.Path);
-                }
-                modCardPills.Remove(mod.Path);
-                activeBoxes.Remove(mod.Path);
-                groupBy.Remove(mod.Path);
-                nexusLinks.Remove(mod.Path);
-                mods.RemoveAll(m => string.Equals(m.Path, mod.Path, StringComparison.OrdinalIgnoreCase));
-                if (string.Equals(focusedModPath, mod.Path, StringComparison.OrdinalIgnoreCase)) focusedModPath = "";
+                    if (File.Exists(mod.Path)) File.Delete(mod.Path);
+                    else if (Directory.Exists(mod.Path)) Directory.Delete(mod.Path, true);
+                    Log("Deleted mod: " + mod.Name + ".");
 
-                // Drop any per-patch toggles that belonged to this mod from the persisted set.
-                var deadPrefix = Path.GetFileName(mod.Path) + "|";
-                disabledPatches.RemoveWhere(k => k.StartsWith(deadPrefix, StringComparison.OrdinalIgnoreCase));
+                    if (modCards.ContainsKey(mod.Path))
+                    {
+                        var card = modCards[mod.Path];
+                        if (modCardsHost != null) modCardsHost.Controls.Remove(card);
+                        card.Dispose();
+                        modCards.Remove(mod.Path);
+                    }
+                    modCardPills.Remove(mod.Path);
+                    activeBoxes.Remove(mod.Path);
+                    groupBy.Remove(mod.Path);
+                    nexusLinks.Remove(mod.Path);
+                    mods.RemoveAll(m => string.Equals(m.Path, mod.Path, StringComparison.OrdinalIgnoreCase));
+                    if (string.Equals(focusedModPath, mod.Path, StringComparison.OrdinalIgnoreCase)) focusedModPath = "";
+
+                    var deadPrefix = Path.GetFileName(mod.Path) + "|";
+                    disabledPatches.RemoveWhere(k => k.StartsWith(deadPrefix, StringComparison.OrdinalIgnoreCase));
+                }
                 config["disabledPatches"] = disabledPatches.ToArray();
-                // Drop from active mods list in config too.
+                var deletedNames = new HashSet<string>(targets.Select(m => Path.GetFileName(m.Path)), StringComparer.OrdinalIgnoreCase);
                 var activeNames = (config.ContainsKey("activeMods") && config["activeMods"] is object[] aArr ? aArr : new object[0])
                     .Select(o => Convert.ToString(o))
-                    .Where(s => !string.Equals(s, Path.GetFileName(mod.Path), StringComparison.OrdinalIgnoreCase))
+                    .Where(s => !deletedNames.Contains(s))
                     .Cast<object>()
                     .ToArray();
                 config["activeMods"] = activeNames;
@@ -3975,6 +4027,9 @@ namespace CdJsonModManager
                 foreach (var folder in JsonMod.LoadOverlayDirectory(importedPackageRoot, json, IsBrowserModDirectory(importedPackageRoot) ? "BROWSER" : "RAW").OverlayFolders)
                 {
                     artifactNames.Add(Path.GetFileName(folder));
+                    var parent = Directory.GetParent(folder);
+                    if (parent != null && !string.Equals(parent.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), importedPackageRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                        artifactNames.Add(parent.Name);
                     foreach (var child in Directory.GetDirectories(folder))
                     {
                         var childName = Path.GetFileName(child);
@@ -4084,6 +4139,11 @@ namespace CdJsonModManager
             if (!Directory.Exists(path)) return;
             if (IsRawOverlayDirectory(path) || IsBrowserModDirectory(path))
             {
+                jsonCandidates.AddRange(Directory.GetFiles(path, "*.json", SearchOption.TopDirectoryOnly)
+                    .Where(file => !IsPackageMetadataFile(path, file)));
+                asiCandidates.AddRange(Directory.GetFiles(path, "*.asi", SearchOption.TopDirectoryOnly));
+                asiCandidates.AddRange(Directory.GetFiles(path, "*.dll", SearchOption.TopDirectoryOnly));
+                asiCandidates.AddRange(Directory.GetFiles(path, "*.ini", SearchOption.TopDirectoryOnly));
                 packageCandidates.Add(path);
                 return;
             }
@@ -4202,8 +4262,10 @@ namespace CdJsonModManager
             if (IsRawOverlayPayloadDirectory(path)) return true;
             if (IsLooseRawOverlayRoot(path)) return true;
             if (Directory.GetDirectories(path).Any(IsRawOverlayPayloadDirectory)) return true;
+            if (IsFilesOverlayDirectory(path)) return true;
+            if (IsVariantOverlayPackageDirectory(path)) return true;
             if (IsManifestOverlayDirectory(path)) return true;
-            if (!File.Exists(Path.Combine(path, "modinfo.json"))) return false;
+            if (!File.Exists(Path.Combine(path, "modinfo.json")) && !File.Exists(Path.Combine(path, "mod.json"))) return false;
             if (Directory.GetDirectories(path).Any(IsRawOverlayPayloadDirectory)) return true;
 
             var filesRoot = Path.Combine(path, "files");
@@ -4225,6 +4287,24 @@ namespace CdJsonModManager
             catch { }
 
             return false;
+        }
+
+        private static bool IsFilesOverlayDirectory(string path)
+        {
+            var filesRoot = Path.Combine(path, "files");
+            return Directory.Exists(filesRoot) && Directory.GetDirectories(filesRoot).Any(IsRawOverlayPayloadDirectory);
+        }
+
+        private static bool IsVariantOverlayPackageDirectory(string path)
+        {
+            if (!File.Exists(Path.Combine(path, "mod.json"))
+                && !File.Exists(Path.Combine(path, "modinfo.json"))
+                && !File.Exists(Path.Combine(path, "manifest.json")))
+            {
+                return false;
+            }
+            return Directory.GetDirectories(path).Any(child =>
+                Directory.GetDirectories(child).Any(IsRawOverlayPayloadDirectory));
         }
 
         private bool IsManifestOverlayDirectory(string path)
@@ -4398,6 +4478,7 @@ namespace CdJsonModManager
             foreach (ListViewItem item in asiList.SelectedItems)
             {
                 var path = Convert.ToString(item.Tag);
+                if (string.IsNullOrEmpty(path)) continue;
                 if (path.EndsWith(".asi.disabled", StringComparison.OrdinalIgnoreCase))
                 {
                     File.Move(path, path.Substring(0, path.Length - ".disabled".Length));
@@ -4405,6 +4486,43 @@ namespace CdJsonModManager
                 else if (path.EndsWith(".asi", StringComparison.OrdinalIgnoreCase))
                 {
                     File.Move(path, path + ".disabled");
+                }
+            }
+            RefreshAsi();
+        }
+
+        private void RemoveSelectedAsi()
+        {
+            var selected = asiList.SelectedItems.Cast<ListViewItem>()
+                .Select(item => Convert.ToString(item.Tag))
+                .Where(path => !string.IsNullOrEmpty(path) && File.Exists(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (selected.Count == 0) return;
+
+            var names = string.Join("\r\n", selected.Take(8).Select(path => "  * " + Path.GetFileName(path)).ToArray());
+            if (selected.Count > 8) names += "\r\n  ...";
+            var answer = MessageBox.Show("Remove " + selected.Count + " ASI/DLL/INI file" + (selected.Count == 1 ? "" : "s") + "?\r\n\r\n" + names + "\r\n\r\nThis deletes the selected runtime mod file(s) from bin64 and UJMM's _asi copy when present.", "Remove ASI mod", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (answer != DialogResult.Yes) return;
+
+            foreach (var path in selected)
+            {
+                try
+                {
+                    var name = Path.GetFileName(path);
+                    File.Delete(path);
+                    var shadow = Path.Combine(asiDir, name);
+                    if (File.Exists(shadow)) File.Delete(shadow);
+                    if (name.EndsWith(".asi.disabled", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var enabledShadow = Path.Combine(asiDir, name.Substring(0, name.Length - ".disabled".Length));
+                        if (File.Exists(enabledShadow)) File.Delete(enabledShadow);
+                    }
+                    Log("Removed ASI mod file: " + name);
+                }
+                catch (Exception ex)
+                {
+                    Log("Could not remove ASI file " + Path.GetFileName(path) + ": " + ex.Message);
                 }
             }
             RefreshAsi();
@@ -4439,7 +4557,7 @@ namespace CdJsonModManager
             {
                 if (IsOverlayMod(mod))
                 {
-                    foreach (var folder in mod.OverlayFolders)
+                    foreach (var folder in OverlayFoldersForGroup(mod, GroupFor(mod)))
                     {
                         var files = OverlayFiles(folder).Where(File.Exists).ToList();
                         if (files.Count == 0)
@@ -4836,7 +4954,7 @@ namespace CdJsonModManager
             int installed = 0;
             foreach (var mod in overlays)
             {
-                foreach (var sourceFolder in mod.OverlayFolders)
+                foreach (var sourceFolder in OverlayFoldersForGroup(mod, GroupFor(mod)))
                 {
                     if (!Directory.Exists(sourceFolder)) continue;
                     var wanted = Path.GetFileName(sourceFolder);
@@ -7721,6 +7839,7 @@ namespace CdJsonModManager
         public List<PatchChange> Changes { get; private set; }
         public List<string> Groups { get; private set; }
         public List<string> OverlayFolders { get; private set; }
+        public Dictionary<string, string> OverlayGroupByFolder { get; private set; }
 
         public static JsonMod Load(string path, JavaScriptSerializer json)
         {
@@ -7738,7 +7857,8 @@ namespace CdJsonModManager
                 FormatTag = "JSON",
                 Changes = new List<PatchChange>(),
                 Groups = new List<string>(),
-                OverlayFolders = new List<string>()
+                OverlayFolders = new List<string>(),
+                OverlayGroupByFolder = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             };
 
             if (root.ContainsKey("patches") && root["patches"] is object[] patches)
@@ -7813,7 +7933,8 @@ namespace CdJsonModManager
                 FormatTag = "FIELDS",
                 Changes = new List<PatchChange>(),
                 Groups = new List<string>(),
-                OverlayFolders = new List<string>()
+                OverlayFolders = new List<string>(),
+                OverlayGroupByFolder = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             };
 
             if (root.ContainsKey("targets") && root["targets"] is object[] targets)
@@ -7853,7 +7974,8 @@ namespace CdJsonModManager
                 FormatTag = formatTag,
                 Changes = new List<PatchChange>(),
                 Groups = new List<string> { "All" },
-                OverlayFolders = new List<string>()
+                OverlayFolders = new List<string>(),
+                OverlayGroupByFolder = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             };
 
             var root = path;
@@ -7873,6 +7995,11 @@ namespace CdJsonModManager
                 var candidateRoot = System.IO.Path.Combine(path, filesDir);
                 if (Directory.Exists(candidateRoot)) root = candidateRoot;
             }
+            if (formatTag == "RAW" && info == null)
+            {
+                var candidateRoot = System.IO.Path.Combine(path, "files");
+                if (Directory.Exists(candidateRoot)) root = candidateRoot;
+            }
             if (formatTag == "BROWSER" && info != null)
             {
                 root = System.IO.Path.Combine(path, GetString(info, "files_dir", "files"));
@@ -7884,6 +8011,29 @@ namespace CdJsonModManager
                     var name = System.IO.Path.GetFileName(dir);
                     if (Regex.IsMatch(name, @"^\d{4}$")) mod.OverlayFolders.Add(dir);
                 }
+            }
+            if (formatTag == "RAW" && mod.OverlayFolders.Count == 0)
+            {
+                foreach (var variantDir in Directory.GetDirectories(path).OrderBy(System.IO.Path.GetFileName))
+                {
+                    var group = System.IO.Path.GetFileName(variantDir);
+                    var addedForVariant = 0;
+                    foreach (var archiveDir in Directory.GetDirectories(variantDir).OrderBy(System.IO.Path.GetFileName))
+                    {
+                        var name = System.IO.Path.GetFileName(archiveDir);
+                        if (!Regex.IsMatch(name, @"^\d{4}$")) continue;
+                        if (!File.Exists(System.IO.Path.Combine(archiveDir, "0.pamt"))
+                            && !File.Exists(System.IO.Path.Combine(archiveDir, "0.paz"))
+                            && !Directory.GetFiles(archiveDir, "*", SearchOption.AllDirectories).Any()) continue;
+                        mod.OverlayFolders.Add(archiveDir);
+                        mod.OverlayGroupByFolder[archiveDir] = group;
+                        addedForVariant++;
+                    }
+                    if (addedForVariant > 0 && !mod.Groups.Any(g => string.Equals(g, group, StringComparison.OrdinalIgnoreCase)))
+                        mod.Groups.Add(group);
+                }
+                if (mod.OverlayGroupByFolder.Count > 0)
+                    mod.Groups.RemoveAll(g => string.Equals(g, "All", StringComparison.OrdinalIgnoreCase));
             }
             if (formatTag == "RAW" && mod.OverlayFolders.Count == 0 && IsLooseRawOverlayRoot(path))
             {
