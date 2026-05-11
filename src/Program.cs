@@ -7894,7 +7894,8 @@ namespace CdJsonModManager
             {
                 if (string.IsNullOrWhiteSpace(mod.Description) && info != null)
                     mod.Description = GetString(info, "title", "");
-                if (info == null) mod.Name = System.IO.Path.GetFileName(mod.OverlayFolders[0]);
+                if (info == null && string.Equals(System.IO.Path.GetFullPath(path).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar), System.IO.Path.GetFullPath(mod.OverlayFolders[0]).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                    mod.Name = System.IO.Path.GetFileName(mod.OverlayFolders[0]);
             }
             return mod;
         }
