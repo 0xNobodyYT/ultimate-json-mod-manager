@@ -3177,7 +3177,10 @@ namespace CdJsonModManager
             tipsHost.SetToolTip(header, focused.Name);
             presetRailHost.Controls.Add(header);
 
-            if (IsOverlayMod(focused))
+            var overlayHasVariants = IsOverlayMod(focused)
+                && focused.OverlayGroupByFolder != null
+                && focused.OverlayGroupByFolder.Count > 0;
+            if (IsOverlayMod(focused) && !overlayHasVariants)
             {
                 var card = new RoundedPanel
                 {
@@ -3259,7 +3262,9 @@ namespace CdJsonModManager
             foreach (var g in groups)
             {
                 var captured = g;
-                int patchCount = focused.Changes.Count(c => string.Equals(c.Group, g, StringComparison.OrdinalIgnoreCase));
+                int patchCount = IsOverlayMod(focused)
+                    ? OverlayFoldersForGroup(focused, g).Count()
+                    : focused.Changes.Count(c => string.Equals(c.Group, g, StringComparison.OrdinalIgnoreCase));
                 var displayName = showSingleAllAsCard && string.Equals(g, "All", StringComparison.OrdinalIgnoreCase)
                     ? focused.Name
                     : g;
@@ -3305,7 +3310,9 @@ namespace CdJsonModManager
 
                 var subLabel = new Label
                 {
-                    Text = patchCount + " patch" + (patchCount == 1 ? "" : "es"),
+                    Text = IsOverlayMod(focused)
+                        ? patchCount + " folder" + (patchCount == 1 ? "" : "s")
+                        : patchCount + " patch" + (patchCount == 1 ? "" : "es"),
                     Dock = DockStyle.Fill,
                     Font = new Font("Consolas", 8f),
                     BackColor = Color.Transparent,
