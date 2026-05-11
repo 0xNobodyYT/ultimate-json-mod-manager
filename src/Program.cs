@@ -16,8 +16,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.3.1.0")]
-[assembly: AssemblyVersion("1.3.1.0")]
+[assembly: AssemblyFileVersion("1.3.2.0")]
+[assembly: AssemblyVersion("1.3.2.0")]
 
 namespace CdJsonModManager
 {
@@ -28,7 +28,7 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.3.1";
+        public const string AppVersion = "1.3.2";
         public const string NexusGameDomain = "crimsondesert";
         public const string NexusSsoApplication = "0xnobody-ultimatejsonmodmanager"; // app slug used for SSO handshake — assigned by Nexus 2026-05-10
         public const string NxmScheme = "nxm";
@@ -104,6 +104,7 @@ namespace CdJsonModManager
         private readonly Dictionary<string, RoundedPanel> modCards = new Dictionary<string, RoundedPanel>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, NexusLink> nexusLinks = new Dictionary<string, NexusLink>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Pill> modCardPills = new Dictionary<string, Pill>(StringComparer.OrdinalIgnoreCase);
+        private bool suppressSelectionPersist;
         private System.Windows.Forms.Timer nexusUpdateTimer;
         private readonly Dictionary<string, object> config;
 
@@ -304,7 +305,8 @@ namespace CdJsonModManager
                 ["colPatchesWidth"] = 700,
                 ["colLogWidth"] = 360,
                 ["theme"] = "Gilded",
-                ["selectedGroups"] = new Dictionary<string, object>()
+                ["selectedGroups"] = new Dictionary<string, object>(),
+                ["modOrder"] = new object[0]
             };
         }
 
@@ -336,6 +338,33 @@ namespace CdJsonModManager
                 foreach (var item in list) set.Add(Convert.ToString(item));
             }
             return set;
+        }
+
+        private List<string> ConfigStringList(string key)
+        {
+            var listOut = new List<string>();
+            if (!config.ContainsKey(key) || config[key] == null)
+            {
+                return listOut;
+            }
+
+            if (config[key] is object[] array)
+            {
+                foreach (var item in array)
+                {
+                    var text = Convert.ToString(item);
+                    if (!string.IsNullOrWhiteSpace(text)) listOut.Add(text);
+                }
+            }
+            else if (config[key] is System.Collections.ArrayList list)
+            {
+                foreach (var item in list)
+                {
+                    var text = Convert.ToString(item);
+                    if (!string.IsNullOrWhiteSpace(text)) listOut.Add(text);
+                }
+            }
+            return listOut;
         }
 
         private Dictionary<string, object> ConfigDict(string key)
@@ -2437,6 +2466,7 @@ namespace CdJsonModManager
                     Log("Skipped " + Path.GetFileName(dir) + ": " + ex.Message);
                 }
             }
+            ApplySavedModOrder();
 
             var active = ConfigStringSet("activeMods");
             var selectedGroups = ConfigDict("selectedGroups");
@@ -2555,6 +2585,10 @@ namespace CdJsonModManager
                 menu.Items.Add("Uninstall / Disable", null, (s, e) => DisableMod(capturedMod));
                 menu.Items.Add("Open Folder", null, (s, e) => OpenFolder(Path.GetDirectoryName(capturedMod.Path)));
                 menu.Items.Add("-");
+                menu.Items.Add("Priority: Move Up", null, (s, e) => MoveModPriority(capturedMod, -1));
+                menu.Items.Add("Priority: Move Down", null, (s, e) => MoveModPriority(capturedMod, 1));
+                menu.Items.Add("Priority: Move to Bottom (highest)", null, (s, e) => MoveModPriority(capturedMod, int.MaxValue));
+                menu.Items.Add("-");
                 menu.Items.Add("Link to Nexus...", null, (s, e) => PromptLinkToNexus(capturedMod));
                 if (nexusLinks.ContainsKey(mod.Path))
                 {
@@ -2590,6 +2624,7 @@ namespace CdJsonModManager
                 check.Click += (s, e) => FocusMod(capturedMod);
                 check.CheckedChanged += (sender, args) =>
                 {
+                    if (suppressSelectionPersist) return;
                     UpdateModCardVisual(capturedMod);
                     PersistSelectionAndRefresh();
                 };
@@ -2621,6 +2656,65 @@ namespace CdJsonModManager
             LoadMods();
             RefreshAsi();
             Log("Refreshed mods folder: " + before + " -> " + mods.Count + " mod(s).");
+        }
+
+        private void ApplySavedModOrder()
+        {
+            var saved = ConfigStringList("modOrder");
+            if (saved.Count == 0) return;
+            var rank = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < saved.Count; i++)
+            {
+                if (!rank.ContainsKey(saved[i])) rank[saved[i]] = i;
+            }
+            mods.Sort((a, b) =>
+            {
+                int ai, bi;
+                var an = Path.GetFileName(a.Path);
+                var bn = Path.GetFileName(b.Path);
+                var ah = rank.TryGetValue(an, out ai);
+                var bh = rank.TryGetValue(bn, out bi);
+                if (ah && bh) return ai.CompareTo(bi);
+                if (ah) return -1;
+                if (bh) return 1;
+                return string.Compare(an, bn, StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
+        private void SaveModOrder()
+        {
+            config["modOrder"] = mods.Select(mod => (object)Path.GetFileName(mod.Path)).ToArray();
+            SaveConfig(config);
+        }
+
+        private void MoveModPriority(JsonMod mod, int delta)
+        {
+            var oldIndex = mods.FindIndex(m => string.Equals(m.Path, mod.Path, StringComparison.OrdinalIgnoreCase));
+            if (oldIndex < 0) return;
+            var newIndex = delta == int.MaxValue ? mods.Count - 1 : Math.Max(0, Math.Min(mods.Count - 1, oldIndex + delta));
+            if (newIndex == oldIndex) return;
+
+            mods.RemoveAt(oldIndex);
+            mods.Insert(newIndex, mod);
+
+            suppressSelectionPersist = true;
+            try
+            {
+                modCardsHost.Controls.Clear();
+                foreach (var m in mods)
+                {
+                    if (modCards.ContainsKey(m.Path)) modCardsHost.Controls.Add(modCards[m.Path]);
+                }
+            }
+            finally
+            {
+                suppressSelectionPersist = false;
+            }
+
+            SaveModOrder();
+            PersistSelectionAndRefresh();
+            FocusMod(mod);
+            Log("Moved " + mod.Name + " priority to " + (newIndex + 1) + "/" + mods.Count + ". Lower cards apply later and win conflicts.");
         }
 
         private void UpdateModPillForLink(JsonMod mod)
@@ -3332,6 +3426,7 @@ namespace CdJsonModManager
             }
             config["activeMods"] = active.ToArray();
             config["selectedGroups"] = groups;
+            config["modOrder"] = mods.Select(mod => (object)Path.GetFileName(mod.Path)).ToArray();
             SaveConfig(config);
             File.WriteAllText(Path.Combine(enabledDir, "_load_order.json"), json.Serialize(active.ToArray()), Encoding.UTF8);
             UpdatePresetVisuals();
@@ -3830,8 +3925,27 @@ namespace CdJsonModManager
         {
             if (IsRawOverlayPayloadDirectory(path)) return true;
             if (!File.Exists(Path.Combine(path, "modinfo.json"))) return false;
-            return Directory.GetDirectories(path)
-                .Any(IsRawOverlayPayloadDirectory);
+            if (Directory.GetDirectories(path).Any(IsRawOverlayPayloadDirectory)) return true;
+
+            var filesRoot = Path.Combine(path, "files");
+            if (Directory.Exists(filesRoot) && Directory.GetDirectories(filesRoot).Any(IsRawOverlayPayloadDirectory)) return true;
+
+            try
+            {
+                var info = json.DeserializeObject(File.ReadAllText(Path.Combine(path, "modinfo.json"), Encoding.UTF8)) as Dictionary<string, object>;
+                if (info != null)
+                {
+                    var configuredRoot = Convert.ToString(info.ContainsKey("files_dir") ? info["files_dir"] : "");
+                    if (!string.IsNullOrWhiteSpace(configuredRoot))
+                    {
+                        var root = Path.Combine(path, configuredRoot);
+                        if (Directory.Exists(root) && Directory.GetDirectories(root).Any(IsRawOverlayPayloadDirectory)) return true;
+                    }
+                }
+            }
+            catch { }
+
+            return false;
         }
 
         private bool IsRawOverlayPayloadDirectory(string path)
@@ -4394,7 +4508,7 @@ namespace CdJsonModManager
                     }
                     else
                     {
-                        BuildLooseOverlayPackage(sourceFolder, target);
+                        BuildLooseOverlayPackage(sourceFolder, target, gamePath, Log);
                         packedLooseOverlay = true;
                     }
                     var marker = Path.GetFullPath(Path.Combine(PazBackupsRoot(), "..", "overlay_folders.txt"));
@@ -4435,7 +4549,7 @@ namespace CdJsonModManager
             public uint FileNameOffset;
         }
 
-        private static void BuildLooseOverlayPackage(string sourceFolder, string targetFolder)
+        private static void BuildLooseOverlayPackage(string sourceFolder, string targetFolder, string gameRoot, Action<string> log)
         {
             var files = Directory.GetFiles(sourceFolder, "*", SearchOption.AllDirectories)
                 .Where(path =>
@@ -4450,6 +4564,7 @@ namespace CdJsonModManager
                 .Select(path =>
                 {
                     var rel = path.Substring(sourceFolder.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
+                    rel = NormalizeOverlayPatchOutputPath(rel);
                     return new LooseOverlayFile
                     {
                         SourcePath = path,
@@ -4469,7 +4584,7 @@ namespace CdJsonModManager
             var paz = new MemoryStream();
             foreach (var file in files)
             {
-                var raw = File.ReadAllBytes(file.SourcePath);
+                var raw = BuildLooseOverlayFileBytes(sourceFolder, file.SourcePath, file.RelativePath, gameRoot, log);
                 file.OriginalSize = checked((uint)raw.Length);
                 file.PackedBytes = ArchiveExtractor.Lz4BlockCompress(raw);
                 var aligned = AlignUp((uint)paz.Position, 16);
@@ -4482,6 +4597,129 @@ namespace CdJsonModManager
             File.WriteAllBytes(Path.Combine(targetFolder, "0.paz"), pazBytes);
             var pamtBytes = BuildLooseOverlayPamt(files, pazBytes);
             File.WriteAllBytes(Path.Combine(targetFolder, "0.pamt"), pamtBytes);
+        }
+
+        private static string NormalizeOverlayPatchOutputPath(string relativePath)
+        {
+            if (relativePath.EndsWith(".merge", StringComparison.OrdinalIgnoreCase))
+                return relativePath.Substring(0, relativePath.Length - ".merge".Length);
+            if (relativePath.EndsWith(".patch", StringComparison.OrdinalIgnoreCase))
+                return relativePath.Substring(0, relativePath.Length - ".patch".Length);
+            return relativePath;
+        }
+
+        private static byte[] BuildLooseOverlayFileBytes(string sourceFolder, string sourcePath, string relativePath, string gameRoot, Action<string> log)
+        {
+            var ext = Path.GetExtension(sourcePath);
+            if (!string.Equals(ext, ".merge", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(ext, ".patch", StringComparison.OrdinalIgnoreCase))
+            {
+                return File.ReadAllBytes(sourcePath);
+            }
+
+            var original = ExtractOverlayOriginal(gameRoot, Path.GetFileName(sourceFolder), relativePath);
+            if (original == null)
+            {
+                if (log != null) log("Overlay patch source not found in game archives for " + relativePath + "; packing patch payload only.");
+                return File.ReadAllBytes(sourcePath);
+            }
+
+            var text = DecodeText(original);
+            var patchText = File.ReadAllText(sourcePath, Encoding.UTF8);
+            if (string.Equals(ext, ".merge", StringComparison.OrdinalIgnoreCase))
+            {
+                var merged = text.TrimEnd() + "\r\n\r\n" + patchText.Trim() + "\r\n";
+                return new UTF8Encoding(false).GetBytes(merged);
+            }
+
+            var patched = ApplySimpleXmlPatch(text, patchText, log, relativePath);
+            return new UTF8Encoding(false).GetBytes(patched);
+        }
+
+        private static string DecodeText(byte[] bytes)
+        {
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+                return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+            return Encoding.UTF8.GetString(bytes);
+        }
+
+        private static string ApplySimpleXmlPatch(string original, string patchText, Action<string> log, string relativePath)
+        {
+            var clean = Regex.Replace(patchText, "<!--.*?-->", "", RegexOptions.Singleline);
+            foreach (Match op in Regex.Matches(clean, "<(set|replace)\\b([^>]*)/>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+            {
+                var attrs = ParseXmlLikeAttributes(op.Groups[2].Value);
+                if (!attrs.ContainsKey("at")) continue;
+                var at = attrs["at"];
+                if (!at.StartsWith("#", StringComparison.Ordinal)) continue;
+                var id = at.Substring(1);
+                attrs.Remove("at");
+                if (attrs.Count == 0) continue;
+                original = ApplyAttributesToElementById(original, id, attrs, log, relativePath);
+            }
+            return original;
+        }
+
+        private static Dictionary<string, string> ParseXmlLikeAttributes(string text)
+        {
+            var attrs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match match in Regex.Matches(text, "([A-Za-z0-9:_-]+)\\s*=\\s*\"([^\"]*)\"", RegexOptions.Singleline))
+            {
+                attrs[match.Groups[1].Value] = match.Groups[2].Value;
+            }
+            return attrs;
+        }
+
+        private static string ApplyAttributesToElementById(string original, string id, Dictionary<string, string> attrs, Action<string> log, string relativePath)
+        {
+            var elementPattern = "<([A-Za-z0-9:_-]+)\\b([^<>]*\\bid\\s*=\\s*[\"']" + Regex.Escape(id) + "[\"'][^<>]*)>";
+            var changed = false;
+            var result = Regex.Replace(original, elementPattern, match =>
+            {
+                changed = true;
+                var tagName = match.Groups[1].Value;
+                var body = match.Groups[2].Value;
+                foreach (var attr in attrs)
+                {
+                    var attrPattern = "\\s+" + Regex.Escape(attr.Key) + "\\s*=\\s*\"[^\"]*\"";
+                    if (Regex.IsMatch(body, attrPattern, RegexOptions.IgnoreCase))
+                        body = Regex.Replace(body, attrPattern, " " + attr.Key + "=\"" + attr.Value + "\"", RegexOptions.IgnoreCase);
+                    else
+                        body += " " + attr.Key + "=\"" + attr.Value + "\"";
+                }
+                return "<" + tagName + body + ">";
+            }, RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (!changed && log != null) log("XML patch selector #" + id + " not found in " + relativePath + ".");
+            return result;
+        }
+
+        private static byte[] ExtractOverlayOriginal(string gameRoot, string groupName, string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(gameRoot) || string.IsNullOrWhiteSpace(groupName)) return null;
+            try
+            {
+                var groupDir = Path.Combine(gameRoot, groupName);
+                var pamtPath = Path.Combine(groupDir, "0.pamt");
+                if (!File.Exists(pamtPath)) return null;
+                var pamt = ArchiveExtractor.ParsePamtFull(pamtPath, groupDir);
+                var normalized = relativePath.Replace('\\', '/');
+                var entry = pamt.Entries.FirstOrDefault(e => string.Equals((e.Path ?? "").Replace('\\', '/'), normalized, StringComparison.OrdinalIgnoreCase));
+                if (entry == null || !File.Exists(entry.PazFile)) return null;
+                using (var fs = File.OpenRead(entry.PazFile))
+                {
+                    fs.Seek(entry.Offset, SeekOrigin.Begin);
+                    var blob = new byte[entry.CompSize];
+                    var got = fs.Read(blob, 0, blob.Length);
+                    if (got != blob.Length) return null;
+                    if (entry.CompressionType == 2) return ArchiveExtractor.Lz4BlockDecompressPublic(blob, entry.OrigSize);
+                    if (entry.CompressionType == 0 || entry.CompSize == entry.OrigSize) return blob;
+                    return null;
+                }
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static string NormalizeOverlayDirectory(string path)
@@ -6673,6 +6911,12 @@ namespace CdJsonModManager
                 if (string.IsNullOrWhiteSpace(mod.Description)) mod.Description = "Raw folder mod";
                 return mod;
             }
+            if (formatTag == "RAW" && info != null)
+            {
+                var filesDir = GetString(info, "files_dir", "files");
+                var candidateRoot = System.IO.Path.Combine(path, filesDir);
+                if (Directory.Exists(candidateRoot)) root = candidateRoot;
+            }
             if (formatTag == "BROWSER" && info != null)
             {
                 root = System.IO.Path.Combine(path, GetString(info, "files_dir", "files"));
@@ -6689,7 +6933,7 @@ namespace CdJsonModManager
             {
                 if (string.IsNullOrWhiteSpace(mod.Description) && info != null)
                     mod.Description = GetString(info, "title", "");
-                mod.Name = System.IO.Path.GetFileName(mod.OverlayFolders[0]);
+                if (info == null) mod.Name = System.IO.Path.GetFileName(mod.OverlayFolders[0]);
             }
             return mod;
         }

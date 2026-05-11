@@ -9,6 +9,8 @@ UJMM imports JSON byte-patch mods, known JSON v3/FIELDS mods, RAW and Browser/UI
 - **Import support** for JSON/FIELDS files, ZIP/7Z/RAR archives, RAW folders, Browser/UI folders, and ASI/DLL/INI runtime files.
 - **Folder-friendly overlay import** for parent folders or inner numbered folders such as `0036` and `files\0012`.
 - **Loose Browser/UI packing**: loose UI files are packed into `0.paz` + `0.pamt` and registered in `meta\0.papgt`; compiled RAW folders copy/register as-is.
+- **JMM-style loose UI patch files**: `.merge` files are merged into the original game file and simple XML `.patch` operations are materialized before packing, so mods using `modinfo.json` + `files\<NNNN>\...` can be installed as real overlays.
+- **Saved mod priority**: move mods up/down or to the bottom from the mod-card context menu. Lower cards apply later and win file conflicts, matching JsonMM's "bottom = highest priority" behavior.
 - **JSON v3/FIELDS support** for known Crimson Desert field-intent mods, including single-target and multi-target DMM-style layouts.
 - **Refresh Mods** reloads manager-side changes after manually editing JSON or overlay files inside the app's `mods/` folder.
 - **Per-mod preset rail** shows preset variants for the focused mod and remembers each preset's selection state.
