@@ -19,8 +19,8 @@ using System.Xml.XPath;
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.3.3.0")]
-[assembly: AssemblyVersion("1.3.3.0")]
+[assembly: AssemblyFileVersion("1.3.4.0")]
+[assembly: AssemblyVersion("1.3.4.0")]
 
 namespace CdJsonModManager
 {
@@ -31,7 +31,7 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.3.3";
+        public const string AppVersion = "1.3.4";
         public const string NexusGameDomain = "crimsondesert";
         public const int NexusAppModId = 2454;
         public const string NexusAppPageUrl = "https://www.nexusmods.com/crimsondesert/mods/2454";
@@ -211,7 +211,7 @@ namespace CdJsonModManager
             ApplyTheme(currentTheme);
             LoadMods();
             RefreshAsi();
-            gamePathText.Text = gamePath ?? "";
+            if (gamePathText != null) gamePathText.Text = gamePath ?? "";
             UpdateStatusPills();
             UpdateInspectorBackup();
             Log("Native .NET manager ready.");
@@ -400,23 +400,23 @@ namespace CdJsonModManager
             BackColor = Color.FromArgb(8, 9, 7);
             ForeColor = Color.FromArgb(244, 234, 209);
             DoubleBuffered = true;
-            Padding = new Padding(18, 16, 18, 14);
+            Padding = new Padding(8, 8, 8, 8);
 
             bottomBar = BuildBottomBar();
             bottomBar.Dock = DockStyle.Bottom;
-            bottomBar.Height = 78;
-            bottomBar.Margin = new Padding(0, 12, 0, 0);
+            bottomBar.Height = 52;
+            bottomBar.Margin = new Padding(0, 6, 0, 0);
             Controls.Add(bottomBar);
 
-            var bottomGap = new Panel { Dock = DockStyle.Bottom, Height = 12, BackColor = Color.Transparent };
+            var bottomGap = new Panel { Dock = DockStyle.Bottom, Height = 6, BackColor = Color.Transparent };
             Controls.Add(bottomGap);
 
             topBar = BuildTopBar();
             topBar.Dock = DockStyle.Top;
-            topBar.Height = 96;
+            topBar.Height = 68;
             Controls.Add(topBar);
 
-            var topGap = new Panel { Dock = DockStyle.Top, Height = 14, BackColor = Color.Transparent };
+            var topGap = new Panel { Dock = DockStyle.Top, Height = 6, BackColor = Color.Transparent };
             Controls.Add(topGap);
 
             var mainGrid = new TableLayoutPanel
@@ -451,7 +451,7 @@ namespace CdJsonModManager
 
         private RoundedPanel BuildTopBar()
         {
-            var bar = new RoundedPanel { CornerRadius = 22, BorderWidth = 1, Padding = new Padding(20, 14, 20, 14) };
+            var bar = new RoundedPanel { CornerRadius = 14, BorderWidth = 1, Padding = new Padding(14, 8, 14, 8) };
 
             var grid = new TableLayoutPanel
             {
@@ -472,10 +472,10 @@ namespace CdJsonModManager
                 RowCount = 1,
                 BackColor = Color.Transparent
             };
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            var mark = new BrandMark { Width = 64, Height = 64, Anchor = AnchorStyles.Left, Margin = new Padding(0, 4, 12, 4) };
+            var mark = new BrandMark { Width = 48, Height = 48, Anchor = AnchorStyles.Left, Margin = new Padding(0, 2, 10, 2) };
             brandRow.Controls.Add(mark, 0, 0);
 
             var titleStack = new TableLayoutPanel
@@ -485,18 +485,18 @@ namespace CdJsonModManager
                 RowCount = 2,
                 BackColor = Color.Transparent
             };
-            titleStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-            titleStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+            titleStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+            titleStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
             titleStack.Controls.Add(new Label
             {
                 Text = Program.AppDisplayName,
                 Dock = DockStyle.Fill,
                 AutoEllipsis = true,
-                Font = new Font("Trebuchet MS", 17.5f, FontStyle.Bold),
+                Font = new Font("Trebuchet MS", 15.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(244, 234, 209),
                 BackColor = Color.Transparent,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0, 4, 0, 0)
+                Margin = new Padding(0, 1, 0, 0)
             }, 0, 0);
             titleStack.Controls.Add(new Label
             {
@@ -508,8 +508,8 @@ namespace CdJsonModManager
                 TextAlign = ContentAlignment.MiddleLeft
             }, 0, 1);
             titleStack.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-            titleStack.Height = 56;
-            titleStack.Margin = new Padding(0, 4, 0, 4);
+            titleStack.Height = 46;
+            titleStack.Margin = new Padding(0, 2, 0, 2);
             brandRow.RowStyles.Clear();
             brandRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             brandRow.Controls.Add(titleStack, 1, 0);
@@ -541,9 +541,9 @@ namespace CdJsonModManager
             {
                 Text = "♥ Buy me a coffee",
                 Kind = GradientButton.Style.Donate,
-                Width = 178,
+                Width = 96,
                 Height = 30,
-                Margin = new Padding(8, 0, 0, 0)
+                Margin = new Padding(6, 0, 0, 0)
             };
             donateBtn.Click += (s, e) =>
             {
@@ -554,9 +554,9 @@ namespace CdJsonModManager
 
             var reportBtn = new GradientButton
             {
-                Text = "Report a Bug",
+                Text = "Report",
                 Kind = GradientButton.Style.Default,
-                Width = 130,
+                Width = 92,
                 Height = 30,
                 Margin = new Padding(6, 0, 0, 0)
             };
@@ -570,7 +570,7 @@ namespace CdJsonModManager
 
         private RoundedPanel BuildBottomBar()
         {
-            var bar = new RoundedPanel { CornerRadius = 20, BorderWidth = 1, Padding = new Padding(18, 12, 18, 12) };
+            var bar = new RoundedPanel { CornerRadius = 12, BorderWidth = 1, Padding = new Padding(10, 8, 10, 8) };
 
             var grid = new TableLayoutPanel
             {
@@ -588,7 +588,7 @@ namespace CdJsonModManager
             {
                 Text = "Preview: 0 active mods, no game files touched.",
                 Dock = DockStyle.Fill,
-                Font = new Font("Consolas", 9.5f),
+                Font = new Font("Consolas", 8.5f),
                 ForeColor = Color.FromArgb(169, 157, 124),
                 BackColor = Color.Transparent,
                 TextAlign = ContentAlignment.MiddleLeft
@@ -603,13 +603,13 @@ namespace CdJsonModManager
                 WrapContents = false
             };
 
-            var backup = NewGradientButton("Create Backup", GradientButton.Style.Safe, 140, CreateFullBackup);
+            var backup = NewGradientButton("Backup", GradientButton.Style.Safe, 96, CreateFullBackup);
             tipsHost.SetToolTip(backup, "Save the current game state as the revert point. Backs up meta\\0.papgt, 0008\\0.pamt, and the byte lengths of each .paz file. Run this after a Crimson Desert update (or after Steam → Verify Integrity of Game Files) so 'Restore Backup' has fresh backups to restore from.");
-            var dryRun = NewGradientButton("Check Match", GradientButton.Style.Default, 140, RunValidation);
+            var dryRun = NewGradientButton("Check", GradientButton.Style.Default, 86, RunValidation);
             tipsHost.SetToolTip(dryRun, "Check that selected mods match the current game version (no changes applied). Confirms each patch's 'original' bytes match what's actually in your installed Crimson Desert. Useful after a Steam game update.");
-            var apply = NewGradientButton("Apply Mods", GradientButton.Style.Primary, 150, ApplyOverlayStub);
+            var apply = NewGradientButton("Apply", GradientButton.Style.Primary, 92, ApplyOverlayStub);
             tipsHost.SetToolTip(apply, "Apply selected mods. Modded bytes are appended to the .paz archive (original data never overwritten) and the .pamt index is patched to point at them. Click 'Restore Backup' to fully revert.");
-            var uninstall = NewGradientButton("Restore Backup", GradientButton.Style.Danger, 150, DisableAllMods);
+            var uninstall = NewGradientButton("Restore", GradientButton.Style.Danger, 96, DisableAllMods);
             tipsHost.SetToolTip(uninstall, "Restore the game to your saved backup state: restores the .pamt and truncates each .paz back to its recorded length. Uses the backup created by 'Create Backup' (or, if you skipped that step, the one auto-created by Apply Mods).");
             actions.Controls.Add(backup);
             actions.Controls.Add(dryRun);
@@ -628,14 +628,18 @@ namespace CdJsonModManager
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 2,
+                RowCount = 4,
                 BackColor = Color.Transparent
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             panel.Controls.Add(layout);
 
             layout.Controls.Add(BuildPanelHeader("INSTALL", "Steam"), 0, 0);
+            layout.Controls.Add(BuildDropZone(), 0, 1);
+            layout.Controls.Add(BuildInstallToolsRow(), 0, 2);
 
             // BufferedScrollPanel double-buffers the install body so scrolling the mod card list
             // doesn't flicker / leave brief paint artefacts.
@@ -643,28 +647,10 @@ namespace CdJsonModManager
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.Transparent,
-                Padding = new Padding(14, 12, 14, 14),
+                Padding = new Padding(14, 0, 14, 10),
                 AutoScroll = true
             };
-            layout.Controls.Add(body, 0, 1);
-
-            var bodyStack = new TableLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 1,
-                RowCount = 5,
-                BackColor = Color.Transparent
-            };
-            bodyStack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 5; i++) bodyStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            body.Controls.Add(bodyStack);
-
-            bodyStack.Controls.Add(BuildPathCard(), 0, 0);
-            bodyStack.Controls.Add(BuildThemeSwatches(), 0, 1);
-            bodyStack.Controls.Add(BuildDropZone(), 0, 2);
-            bodyStack.Controls.Add(BuildRefreshModsRow(), 0, 3);
+            layout.Controls.Add(body, 0, 3);
 
             modCardsHost = new BufferedFlowPanel
             {
@@ -676,7 +662,7 @@ namespace CdJsonModManager
                 BackColor = Color.Transparent,
                 Margin = new Padding(0, 8, 0, 0)
             };
-            bodyStack.Controls.Add(modCardsHost, 0, 4);
+            body.Controls.Add(modCardsHost);
 
             return panel;
         }
@@ -846,16 +832,81 @@ namespace CdJsonModManager
             return sw;
         }
 
+        private void ShowSettingsDialog()
+        {
+            using (var dialog = new Form
+            {
+                Text = "UJMM Settings",
+                StartPosition = FormStartPosition.CenterParent,
+                Width = 520,
+                Height = 360,
+                MinimizeBox = false,
+                MaximizeBox = false,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                BackColor = currentTheme.Panel,
+                ForeColor = currentTheme.Text,
+                Padding = new Padding(14)
+            })
+            {
+                var layout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 1,
+                    RowCount = 4,
+                    BackColor = Color.Transparent
+                };
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 168));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                dialog.Controls.Add(layout);
+
+                layout.Controls.Add(new Label
+                {
+                    Text = "SETTINGS",
+                    Dock = DockStyle.Fill,
+                    Font = new Font("Consolas", 10, FontStyle.Bold),
+                    ForeColor = currentTheme.Accent2,
+                    BackColor = Color.Transparent,
+                    TextAlign = ContentAlignment.MiddleLeft
+                }, 0, 0);
+
+                var pathCard = BuildPathCard();
+                pathCard.Margin = new Padding(0, 0, 0, 10);
+                layout.Controls.Add(pathCard, 0, 1);
+
+                var swatches = BuildThemeSwatches();
+                swatches.Margin = new Padding(0, 4, 0, 8);
+                layout.Controls.Add(swatches, 0, 2);
+
+                var close = NewGradientButton("Close", GradientButton.Style.Primary, 100, () => dialog.Close());
+                close.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
+                var closeHost = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    BackColor = Color.Transparent
+                };
+                closeHost.Controls.Add(close);
+                layout.Controls.Add(closeHost, 0, 3);
+
+                if (gamePathText != null) gamePathText.Text = gamePath ?? "";
+                dialog.ShowDialog(this);
+                gamePathText = null;
+                themeSwatchHost = null;
+            }
+        }
+
         private RoundedPanel BuildDropZone()
         {
             var panel = new RoundedPanel
             {
-                CornerRadius = 18,
+                CornerRadius = 0,
                 BorderWidth = 1,
                 AutoSize = false,
-                Height = 112,
-                Margin = new Padding(0, 0, 0, 0),
-                Padding = new Padding(16, 12, 16, 12),
+                Height = 84,
+                Margin = new Padding(12, 8, 12, 6),
+                Padding = new Padding(12, 8, 12, 8),
                 AllowDrop = true,
                 Dashed = true
             };
@@ -878,7 +929,7 @@ namespace CdJsonModManager
             {
                 Text = "Drop or click to import",
                 Dock = DockStyle.Fill,
-                Font = new Font("Trebuchet MS", 12, FontStyle.Bold),
+                Font = new Font("Trebuchet MS", 11, FontStyle.Bold),
                 ForeColor = Color.FromArgb(244, 234, 209),
                 BackColor = Color.Transparent,
                 TextAlign = ContentAlignment.BottomCenter
@@ -889,7 +940,7 @@ namespace CdJsonModManager
             {
                 Text = "Files: JSON/FIELDS, ZIP/7Z/RAR, ASI/DLL/INI. Folders: RAW, Browser/UI.",
                 Dock = DockStyle.Fill,
-                Font = new Font("Consolas", 8f),
+                Font = new Font("Consolas", 7.5f),
                 ForeColor = Color.FromArgb(169, 157, 124),
                 BackColor = Color.Transparent,
                 TextAlign = ContentAlignment.TopCenter
@@ -909,6 +960,55 @@ namespace CdJsonModManager
 
             dropZone = panel;
             return panel;
+        }
+
+        private Control BuildInstallToolsRow()
+        {
+            var row = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                RowCount = 1,
+                BackColor = Color.Transparent,
+                Padding = new Padding(14, 4, 14, 4)
+            };
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108));
+
+            var game = IsGameFolder(gamePath) ? ShortPathLabel(gamePath) : "Game folder missing";
+            var gameLabel = new Label
+            {
+                Text = game,
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                Font = new Font("Consolas", 8),
+                ForeColor = Color.FromArgb(169, 157, 124),
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            tipsHost.SetToolTip(gameLabel, gamePath ?? "");
+            row.Controls.Add(gameLabel, 0, 0);
+
+            var settings = NewGradientButton("Settings", GradientButton.Style.Default, 100, ShowSettingsDialog);
+            settings.Height = 30;
+            tipsHost.SetToolTip(settings, "Game folder and color theme.");
+            row.Controls.Add(settings, 1, 0);
+
+            var refresh = NewGradientButton("Refresh", GradientButton.Style.Default, 100, RefreshModsFromDisk);
+            refresh.Height = 30;
+            tipsHost.SetToolTip(refresh, "Reload the mods folder after editing JSON files or copying files manually into mods/.");
+            row.Controls.Add(refresh, 2, 0);
+
+            return row;
+        }
+
+        private string ShortPathLabel(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "";
+            var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrWhiteSpace(name)) return path;
+            return "Game: " + name;
         }
 
         private Control BuildRefreshModsRow()
@@ -2378,7 +2478,7 @@ namespace CdJsonModManager
                 config.Remove("customAccent");
             }
 
-            if (themeSwatchHost != null)
+            if (themeSwatchHost != null && !themeSwatchHost.IsDisposed)
             {
                 foreach (Control c in themeSwatchHost.Controls)
                 {
@@ -2406,7 +2506,7 @@ namespace CdJsonModManager
             if (statusGamePill != null) statusGamePill.WarnColor = theme.Accent;
             if (statusModsPill != null) statusModsPill.WarnColor = theme.Accent;
 
-            if (gamePathText != null)
+            if (gamePathText != null && !gamePathText.IsDisposed)
             {
                 gamePathText.BackColor = theme.Panel2;
                 gamePathText.ForeColor = theme.Text;

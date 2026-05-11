@@ -28,7 +28,7 @@ UJMM imports JSON byte-patch mods, known JSON v3/FIELDS mods, RAW and Browser/UI
 1. Download the latest release from [Releases](https://github.com/0xNobodyYT/ultimate-json-mod-manager/releases) or the Crimson Desert page on Nexus Mods.
 2. Extract the release ZIP if needed.
 3. Run `Ultimate JSON Mod Manager.exe`.
-4. Click **Detect** in the Install panel, or **Browse** and choose the Crimson Desert folder that contains `bin64\` and numbered archive folders like `0008\`.
+4. Click **Settings**, then **Detect** or **Browse** to choose the Crimson Desert folder that contains `bin64\` and numbered archive folders like `0008\`.
 
 Requires .NET Framework 4.7.2 or later.
 
@@ -36,7 +36,7 @@ Requires .NET Framework 4.7.2 or later.
 
 - **Detect** checks common Linux Steam locations too: `~/.steam/steam`, `~/.steam/root`, `~/.local/share/Steam`, and the Flatpak Steam path under `~/.var/app/com.valvesoftware.Steam/`.
 - UJMM also reads Steam `libraryfolders.vdf`, so extra Steam library drives can be detected.
-- If the folder picker hides dot folders such as `.steam`, paste the full path into the game-folder box and click **Save**. Paths like `~/.steam/steam/steamapps/common/Crimson Desert` and `file:///home/...` are accepted.
+- If the folder picker hides dot folders such as `.steam`, paste the full path into the Settings game-folder box and click **Save**. Paths like `~/.steam/steam/steamapps/common/Crimson Desert` and `file:///home/...` are accepted.
 
 ## Use
 
