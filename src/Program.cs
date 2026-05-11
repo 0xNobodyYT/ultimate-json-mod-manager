@@ -33,6 +33,9 @@ namespace CdJsonModManager
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string AppVersion = "1.3.3";
         public const string NexusGameDomain = "crimsondesert";
+        public const int NexusAppModId = 2454;
+        public const string NexusAppPageUrl = "https://www.nexusmods.com/crimsondesert/mods/2454";
+        public const string NexusAppFilesUrl = "https://www.nexusmods.com/crimsondesert/mods/2454?tab=files";
         public const string NexusSsoApplication = "0xnobody-ultimatejsonmodmanager"; // app slug used for SSO handshake — assigned by Nexus 2026-05-10
         public const string NxmScheme = "nxm";
 
@@ -530,7 +533,7 @@ namespace CdJsonModManager
             pillRow.Controls.Add(statusBuildPill);
 
             updatePill = new Pill { Text = "Up to date", DotColor = Color.FromArgb(101, 197, 134), Visible = false, Cursor = Cursors.Hand };
-            tipsHost.SetToolTip(updatePill, "Update available — click to view release notes and install.");
+            tipsHost.SetToolTip(updatePill, "Update available — click to open the UJMM Nexus files page.");
             updatePill.Click += (s, e) => CheckForUpdatesInteractive();
             pillRow.Controls.Add(updatePill);
 
@@ -1405,8 +1408,8 @@ namespace CdJsonModManager
                 RowCount = 4,
                 BackColor = Color.Transparent
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 124)); // status card (taller to clear the pill)
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // actions row — grows when buttons wrap
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 116)); // status card
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));  // actions row
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));  // feed header
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // feed
             tab.Controls.Add(layout);
@@ -1464,23 +1467,22 @@ namespace CdJsonModManager
 
             layout.Controls.Add(statusCard, 0, 0);
 
-            // Actions row — SSO is the primary sign-in path. No user-facing key paste.
-            // WrapContents=true so all buttons stay reachable on narrow widths instead of falling off the right edge.
+            // SSO is the primary sign-in path. Keep this block scroll-free so fallback controls stay visible.
             var actions = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.Transparent,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = true,
-                AutoScroll = true,
-                Padding = new Padding(0, 8, 0, 8)
+                AutoScroll = false,
+                Padding = new Padding(0, 8, 0, 6)
             };
 
             nexusConnectButton = new GradientButton
             {
                 Text = "Sign in with Nexus",
                 Kind = GradientButton.Style.Primary,
-                Width = 200,
+                Width = 176,
                 Height = 38,
                 Margin = new Padding(0, 0, 8, 0)
             };
@@ -1488,11 +1490,11 @@ namespace CdJsonModManager
             nexusConnectButton.Click += (s, e) => OnNexusConnectClick();
             actions.Controls.Add(nexusConnectButton);
 
-            var openBtn = NewGradientButton("Browse mods on Nexus", GradientButton.Style.Default, 200, () => SafeOpenUrl("https://www.nexusmods.com/" + Program.NexusGameDomain));
+            var openBtn = NewGradientButton("Browse mods on Nexus", GradientButton.Style.Default, 190, () => SafeOpenUrl("https://www.nexusmods.com/" + Program.NexusGameDomain));
             tipsHost.SetToolTip(openBtn, "Open the Crimson Desert mods page on Nexus in your browser.");
             actions.Controls.Add(openBtn);
 
-            var refreshBtn = NewGradientButton("Refresh Feed", GradientButton.Style.Default, 130, RefreshNexusFeed);
+            var refreshBtn = NewGradientButton("Refresh Feed", GradientButton.Style.Default, 124, RefreshNexusFeed);
             tipsHost.SetToolTip(refreshBtn, "Reload the recently-updated mods list from Nexus.");
             actions.Controls.Add(refreshBtn);
 
@@ -1503,19 +1505,20 @@ namespace CdJsonModManager
                 Font = new Font("Consolas", 8.5f),
                 ForeColor = Color.FromArgb(112, 104, 79),
                 BackColor = Color.Transparent,
-                Padding = new Padding(8, 12, 0, 0)
+                Padding = new Padding(8, 12, 0, 0),
+                Margin = new Padding(0, 0, 8, 0)
             };
             actions.Controls.Add(nexusRateLabel);
 
             var devLink = new Label
             {
-                Text = "developer: paste API key",
+                Text = "API key",
                 AutoSize = true,
                 Font = new Font("Consolas", 8.5f, FontStyle.Underline),
                 ForeColor = Color.FromArgb(110, 100, 75),
                 BackColor = Color.Transparent,
                 Cursor = Cursors.Hand,
-                Padding = new Padding(10, 16, 0, 0)
+                Padding = new Padding(0, 16, 0, 0)
             };
             tipsHost.SetToolTip(devLink, "Developer/testing only — manually paste a Nexus API key. Regular users sign in with the button above.");
             devLink.Click += (s, e) => PromptPasteApiKey();
@@ -1869,9 +1872,7 @@ namespace CdJsonModManager
                 pendingNxmUrl = null;
                 BeginInvoke(new Action(() => HandleNxmUrl(url)));
             }
-            // No automatic update check at startup — Nexus rep (May 2026) confirmed they want UJMM
-            // distributed as a regular Nexus mod page so users get standard Nexus update notifications
-            // rather than an in-app auto-checker. The build pill remains clickable for explicit checks.
+            CheckForUpdatesBackground();
             StartNexusUpdateTimer();
         }
 
@@ -1879,12 +1880,13 @@ namespace CdJsonModManager
 
         private void CheckForUpdatesBackground()
         {
+            if (string.IsNullOrEmpty(nexusApiKey)) return;
             System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
                     string err;
-                    var info = UpdateChecker.CheckLatest(out err);
+                    var info = CheckLatestAppVersionFromNexus(out err);
                     if (info == null || string.IsNullOrEmpty(info.TagName)) return;
                     cachedRelease = info;
                     if (UpdateChecker.IsNewer(info.TagName, Program.AppVersion))
@@ -1894,7 +1896,7 @@ namespace CdJsonModManager
                         {
                             if (updatePill != null)
                             {
-                                updatePill.Text = "Update " + info.TagName + " available";
+                                updatePill.Text = "Update " + info.TagName.TrimStart('v', 'V') + " available";
                                 updatePill.DotColor = Color.FromArgb(244, 199, 103);
                                 updatePill.Visible = true;
                             }
@@ -1910,10 +1912,10 @@ namespace CdJsonModManager
         {
             UpdateChecker.ReleaseInfo info = cachedRelease;
             string err = "";
-            if (info == null) info = UpdateChecker.CheckLatest(out err);
+            if (info == null) info = CheckLatestAppVersionFromNexus(out err);
             if (info == null || string.IsNullOrEmpty(info.TagName))
             {
-                MessageBox.Show("No release info available.\r\n\r\n" + (string.IsNullOrEmpty(err) ? "(repo has no published releases yet)" : err), "No update info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("No Nexus update info available.\r\n\r\n" + (string.IsNullOrEmpty(err) ? "Sign in with Nexus, or open the UJMM Nexus page manually." : err), "No update info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (!UpdateChecker.IsNewer(info.TagName, Program.AppVersion))
@@ -1925,6 +1927,30 @@ namespace CdJsonModManager
             {
                 dlg.ShowDialog(this);
             }
+        }
+
+        private UpdateChecker.ReleaseInfo CheckLatestAppVersionFromNexus(out string error)
+        {
+            error = "";
+            if (string.IsNullOrEmpty(nexusApiKey))
+            {
+                error = "Nexus sign-in is required for automatic UJMM update detection.";
+                return null;
+            }
+
+            var modInfo = NexusClient.GetMod(nexusApiKey, Program.NexusGameDomain, Program.NexusAppModId, out error);
+            if (modInfo == null) return null;
+
+            var version = modInfo.ContainsKey("version") ? Convert.ToString(modInfo["version"]) : "";
+            var name = modInfo.ContainsKey("name") ? Convert.ToString(modInfo["name"]) : Program.AppDisplayName;
+            var summary = modInfo.ContainsKey("summary") ? Convert.ToString(modInfo["summary"]) : "";
+            return new UpdateChecker.ReleaseInfo
+            {
+                TagName = version,
+                Title = string.IsNullOrEmpty(name) ? Program.AppDisplayName : name,
+                Body = string.IsNullOrEmpty(summary) ? "Open the Nexus files tab to download the latest UJMM build." : summary,
+                HtmlUrl = Program.NexusAppFilesUrl
+            };
         }
 
         private void HandleNxmUrl(string url)
@@ -3697,6 +3723,7 @@ namespace CdJsonModManager
                 {
                     var extractRoot = ExtractArchiveForImport(archive);
                     CollectImportCandidates(extractRoot, jsonCandidates, asiCandidates, new List<string>(), packageCandidates);
+                    AddExtractedPackageCandidates(extractRoot, packageCandidates);
                     Log("Unpacked archive mod: " + Path.GetFileName(archive));
                 }
                 catch (Exception ex)
@@ -3730,23 +3757,31 @@ namespace CdJsonModManager
             int packagesSkipped = 0;
             foreach (var package in packageCandidates.Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                if (File.Exists(package) && IsSupportedArchiveExtension(Path.GetExtension(package))) continue;
-                if (Directory.Exists(package) && IsRawOverlayDirectory(package))
+                try
                 {
-                    CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
-                    imported++;
-                    Log("Imported RAW overlay mod: " + Path.GetFileName(package));
+                    if (File.Exists(package) && IsSupportedArchiveExtension(Path.GetExtension(package))) continue;
+                    if (Directory.Exists(package) && IsRawOverlayDirectory(package))
+                    {
+                        CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
+                        imported++;
+                        Log("Imported RAW overlay mod: " + Path.GetFileName(package));
+                    }
+                    else if (Directory.Exists(package) && IsBrowserModDirectory(package))
+                    {
+                        CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
+                        imported++;
+                        Log("Imported Browser/UI mod: " + Path.GetFileName(package));
+                    }
+                    else
+                    {
+                        packagesSkipped++;
+                        Log("Unrecognised mod package: " + Path.GetFileName(package));
+                    }
                 }
-                else if (Directory.Exists(package) && IsBrowserModDirectory(package))
-                {
-                    CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
-                    imported++;
-                    Log("Imported Browser/UI mod: " + Path.GetFileName(package));
-                }
-                else
+                catch (Exception ex)
                 {
                     packagesSkipped++;
-                    Log("Unrecognised mod package: " + Path.GetFileName(package));
+                    Log("Could not import package " + Path.GetFileName(package) + ": " + ex.Message);
                 }
             }
 
@@ -3779,6 +3814,21 @@ namespace CdJsonModManager
             LoadMods();
             if (asiImported > 0) RefreshAsi();
             Log("Imported " + imported + " JSON, " + asiImported + " ASI/DLL/INI" + (packagesSkipped > 0 ? ", detected " + packagesSkipped + " package(s) not yet apply-ready" : "") + (skipped > 0 ? ", skipped " + skipped + "." : "."));
+        }
+
+        private void AddExtractedPackageCandidates(string extractRoot, List<string> packageCandidates)
+        {
+            if (!Directory.Exists(extractRoot)) return;
+
+            foreach (var dir in Directory.GetDirectories(extractRoot, "*", SearchOption.AllDirectories)
+                .OrderBy(d => d.Length))
+            {
+                if (packageCandidates.Any(existing => string.Equals(existing, dir, StringComparison.OrdinalIgnoreCase))) continue;
+                if (IsRawOverlayDirectory(dir) || IsBrowserModDirectory(dir))
+                {
+                    packageCandidates.Add(dir);
+                }
+            }
         }
 
         private static string SafePackageName(string name)
@@ -3821,21 +3871,27 @@ namespace CdJsonModManager
                 return;
             }
 
-            jsonCandidates.AddRange(Directory.GetFiles(path, "*.json", SearchOption.AllDirectories));
-            archiveCandidates.AddRange(Directory.GetFiles(path, "*.zip", SearchOption.AllDirectories));
-            archiveCandidates.AddRange(Directory.GetFiles(path, "*.7z", SearchOption.AllDirectories));
-            archiveCandidates.AddRange(Directory.GetFiles(path, "*.rar", SearchOption.AllDirectories));
-            asiCandidates.AddRange(Directory.GetFiles(path, "*.asi", SearchOption.AllDirectories));
-            asiCandidates.AddRange(Directory.GetFiles(path, "*.dll", SearchOption.AllDirectories));
-            asiCandidates.AddRange(Directory.GetFiles(path, "*.ini", SearchOption.AllDirectories));
+            foreach (var dir in Directory.GetDirectories(path))
+            {
+                CollectImportCandidates(dir, jsonCandidates, asiCandidates, archiveCandidates, packageCandidates);
+            }
+
+            jsonCandidates.AddRange(Directory.GetFiles(path, "*.json", SearchOption.TopDirectoryOnly));
+            archiveCandidates.AddRange(Directory.GetFiles(path, "*.zip", SearchOption.TopDirectoryOnly));
+            archiveCandidates.AddRange(Directory.GetFiles(path, "*.7z", SearchOption.TopDirectoryOnly));
+            archiveCandidates.AddRange(Directory.GetFiles(path, "*.rar", SearchOption.TopDirectoryOnly));
+            asiCandidates.AddRange(Directory.GetFiles(path, "*.asi", SearchOption.TopDirectoryOnly));
+            asiCandidates.AddRange(Directory.GetFiles(path, "*.dll", SearchOption.TopDirectoryOnly));
+            asiCandidates.AddRange(Directory.GetFiles(path, "*.ini", SearchOption.TopDirectoryOnly));
         }
 
         private string ExtractArchiveForImport(string archivePath)
         {
-            var importsRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".cache", "imports");
+            var importsRoot = Path.Combine(Path.GetTempPath(), "UJMM", "imports");
             Directory.CreateDirectory(importsRoot);
             var safeName = Regex.Replace(Path.GetFileNameWithoutExtension(archivePath) ?? "archive", @"[^A-Za-z0-9._-]+", "_");
-            var extractRoot = Path.Combine(importsRoot, safeName + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"));
+            if (safeName.Length > 36) safeName = safeName.Substring(0, 36).TrimEnd('.', '_', '-');
+            var extractRoot = Path.Combine(importsRoot, safeName + "_" + DateTime.Now.ToString("HHmmssfff"));
             Directory.CreateDirectory(extractRoot);
             ExtractArchiveToDirectory(archivePath, extractRoot);
             return extractRoot;
@@ -3927,6 +3983,7 @@ namespace CdJsonModManager
         private bool IsRawOverlayDirectory(string path)
         {
             if (IsRawOverlayPayloadDirectory(path)) return true;
+            if (IsLooseRawOverlayRoot(path)) return true;
             if (!File.Exists(Path.Combine(path, "modinfo.json"))) return false;
             if (Directory.GetDirectories(path).Any(IsRawOverlayPayloadDirectory)) return true;
 
@@ -3951,13 +4008,58 @@ namespace CdJsonModManager
             return false;
         }
 
-        private bool IsRawOverlayPayloadDirectory(string path)
+        private static bool IsRawOverlayPayloadDirectory(string path)
         {
             return Directory.Exists(path)
                 && Regex.IsMatch(Path.GetFileName(path), @"^\d{4}$")
                 && (File.Exists(Path.Combine(path, "0.pamt"))
                     || File.Exists(Path.Combine(path, "0.paz"))
                     || Directory.GetFiles(path, "*", SearchOption.AllDirectories).Any());
+        }
+
+        private static bool IsLooseRawOverlayRoot(string path)
+        {
+            if (!Directory.Exists(path)) return false;
+            if (Regex.IsMatch(Path.GetFileName(path), @"^\d{4}$")) return false;
+
+            var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories);
+            if (files.Length == 0) return false;
+
+            return files.Any(file =>
+            {
+                if (IsPackageMetadataFile(path, file)) return false;
+                var rel = RelativePath(path, file).Replace('\\', '/');
+                var slash = rel.IndexOf('/');
+                if (slash <= 0) return false;
+                var rootName = rel.Substring(0, slash);
+                return IsLikelyGameOverlayRoot(rootName);
+            });
+        }
+
+        private static bool IsLikelyGameOverlayRoot(string rootName)
+        {
+            var knownRoots = new[]
+            {
+                "character", "ui", "gamedata", "gamecommondata", "sound", "audio", "music",
+                "effect", "texture", "font", "localization", "script", "datasheet", "world",
+                "level", "prefab"
+            };
+            return knownRoots.Any(root => string.Equals(root, rootName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsPackageMetadataFile(string root, string file)
+        {
+            var rel = RelativePath(root, file).Replace('\\', '/');
+            if (rel.IndexOf('/') >= 0) return false;
+            var name = Path.GetFileName(file);
+            return string.Equals(name, "mod.json", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "modinfo.json", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "manifest.json", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string RelativePath(string root, string path)
+        {
+            return path.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
 
         private bool IsBrowserModDirectory(string path)
@@ -4560,8 +4662,7 @@ namespace CdJsonModManager
                     var name = Path.GetFileName(path);
                     if (string.Equals(name, "0.pamt", StringComparison.OrdinalIgnoreCase)) return false;
                     if (string.Equals(Path.GetExtension(name), ".paz", StringComparison.OrdinalIgnoreCase)) return false;
-                    if (string.Equals(name, "manifest.json", StringComparison.OrdinalIgnoreCase)) return false;
-                    if (string.Equals(name, "modinfo.json", StringComparison.OrdinalIgnoreCase)) return false;
+                    if (IsPackageMetadataFile(sourceFolder, path)) return false;
                     return true;
                 })
                 .Select(path =>
@@ -7363,11 +7464,13 @@ namespace CdJsonModManager
         {
             Dictionary<string, object> info = null;
             string metadata = formatTag == "BROWSER" ? System.IO.Path.Combine(path, "manifest.json") : System.IO.Path.Combine(path, "modinfo.json");
+            if (formatTag == "RAW" && !File.Exists(metadata)) metadata = System.IO.Path.Combine(path, "mod.json");
             if (File.Exists(metadata)) info = json.DeserializeObject(File.ReadAllText(metadata, Encoding.UTF8)) as Dictionary<string, object>;
+            if (info != null && info.ContainsKey("modinfo") && info["modinfo"] is Dictionary<string, object> nestedInfo) info = nestedInfo;
             var mod = new JsonMod
             {
                 Path = path,
-                Name = info != null ? GetString(info, formatTag == "BROWSER" ? "title" : "name", System.IO.Path.GetFileName(path)) : System.IO.Path.GetFileName(path),
+                Name = info != null ? GetString(info, formatTag == "BROWSER" ? "title" : "name", GetString(info, "title", System.IO.Path.GetFileName(path))) : System.IO.Path.GetFileName(path),
                 Version = info != null ? GetString(info, "version", "") : "",
                 Description = info != null ? GetString(info, "description", "") : "",
                 Author = info != null ? GetString(info, "author", "") : "",
@@ -7406,6 +7509,11 @@ namespace CdJsonModManager
                     if (Regex.IsMatch(name, @"^\d{4}$")) mod.OverlayFolders.Add(dir);
                 }
             }
+            if (formatTag == "RAW" && mod.OverlayFolders.Count == 0 && IsLooseRawOverlayRoot(path))
+            {
+                mod.OverlayFolders.Add(path);
+                if (string.IsNullOrWhiteSpace(mod.Description)) mod.Description = "Raw folder mod";
+            }
             if (mod.OverlayFolders.Count == 1)
             {
                 if (string.IsNullOrWhiteSpace(mod.Description) && info != null)
@@ -7413,6 +7521,51 @@ namespace CdJsonModManager
                 if (info == null) mod.Name = System.IO.Path.GetFileName(mod.OverlayFolders[0]);
             }
             return mod;
+        }
+
+        private static bool IsLooseRawOverlayRoot(string path)
+        {
+            if (!Directory.Exists(path)) return false;
+            if (Regex.IsMatch(System.IO.Path.GetFileName(path), @"^\d{4}$")) return false;
+
+            var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories);
+            if (files.Length == 0) return false;
+
+            return files.Any(file =>
+            {
+                if (IsPackageMetadataFile(path, file)) return false;
+                var rel = RelativePath(path, file).Replace('\\', '/');
+                var slash = rel.IndexOf('/');
+                if (slash <= 0) return false;
+                var rootName = rel.Substring(0, slash);
+                return IsLikelyGameOverlayRoot(rootName);
+            });
+        }
+
+        private static bool IsLikelyGameOverlayRoot(string rootName)
+        {
+            var knownRoots = new[]
+            {
+                "character", "ui", "gamedata", "gamecommondata", "sound", "audio", "music",
+                "effect", "texture", "font", "localization", "script", "datasheet", "world",
+                "level", "prefab"
+            };
+            return knownRoots.Any(root => string.Equals(root, rootName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsPackageMetadataFile(string root, string file)
+        {
+            var rel = RelativePath(root, file).Replace('\\', '/');
+            if (rel.IndexOf('/') >= 0) return false;
+            var name = System.IO.Path.GetFileName(file);
+            return string.Equals(name, "mod.json", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "modinfo.json", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "manifest.json", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string RelativePath(string root, string path)
+        {
+            return path.Substring(root.Length).TrimStart(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
         }
 
         private static void AddFieldIntents(JsonMod mod, string gameFile, object[] intents)
@@ -8452,76 +8605,12 @@ namespace CdJsonModManager
             catch { return null; }
         }
 
-        public static bool DownloadAsset(ReleaseInfo info, string targetPath, Action<int> onProgress, out string error)
-        {
-            error = "";
-            try
-            {
-                var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(info.DownloadUrl);
-                req.UserAgent = Program.AppDisplayName + "/" + Program.AppVersion;
-                req.Timeout = 60000;
-                using (var resp = (System.Net.HttpWebResponse)req.GetResponse())
-                {
-                    long total = resp.ContentLength;
-                    long got = 0;
-                    using (var src = resp.GetResponseStream())
-                    using (var dst = File.Create(targetPath))
-                    {
-                        var buf = new byte[81920];
-                        int read;
-                        int lastPct = -1;
-                        while ((read = src.Read(buf, 0, buf.Length)) > 0)
-                        {
-                            dst.Write(buf, 0, read);
-                            got += read;
-                            if (total > 0 && onProgress != null)
-                            {
-                                int pct = (int)((got * 100L) / total);
-                                if (pct != lastPct) { lastPct = pct; onProgress(pct); }
-                            }
-                        }
-                    }
-                }
-                return true;
-            }
-            catch (Exception ex) { error = ex.Message; return false; }
-        }
-
-        public static void StageReplaceAndRestart(string newExePath)
-        {
-            var current = Assembly.GetExecutingAssembly().Location;
-            var dir = Path.GetDirectoryName(current);
-            var script = Path.Combine(dir, "_ujmm_update.cmd");
-            var sb = new StringBuilder();
-            sb.AppendLine("@echo off");
-            sb.AppendLine("setlocal");
-            sb.AppendLine(":wait");
-            sb.AppendLine("ping -n 2 127.0.0.1 >nul");
-            sb.AppendLine("tasklist /FI \"IMAGENAME eq " + Path.GetFileName(current) + "\" 2>nul | find /i \"" + Path.GetFileName(current) + "\" >nul && goto wait");
-            sb.AppendLine("move /y \"" + current + "\" \"" + current + ".old\" >nul");
-            sb.AppendLine("move /y \"" + newExePath + "\" \"" + current + "\" >nul");
-            sb.AppendLine("start \"\" \"" + current + "\"");
-            sb.AppendLine("del \"" + current + ".old\" 2>nul");
-            sb.AppendLine("(goto) 2>nul & del \"%~f0\"");
-            File.WriteAllText(script, sb.ToString(), Encoding.ASCII);
-
-            var psi = new ProcessStartInfo("cmd.exe", "/c \"" + script + "\"")
-            {
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                WindowStyle = ProcessWindowStyle.Hidden
-            };
-            Process.Start(psi);
-            Environment.Exit(0);
-        }
     }
 
     internal sealed class UpdateDialog : Form
     {
         private readonly UpdateChecker.ReleaseInfo info;
         private readonly Label statusLabel;
-        private readonly ProgressBar bar;
-        private readonly GradientButton downloadBtn;
 
         public UpdateDialog(UpdateChecker.ReleaseInfo info)
         {
@@ -8552,7 +8641,7 @@ namespace CdJsonModManager
 
             var sub = new Label
             {
-                Text = "You're on " + Program.AppVersion + ". Update now to get the latest features and fixes.",
+                Text = "You're on " + Program.AppVersion + ". Open the Nexus files tab to download the latest build.",
                 Dock = DockStyle.Top,
                 Height = 26,
                 Font = new Font("Consolas", 9),
@@ -8577,7 +8666,7 @@ namespace CdJsonModManager
 
             statusLabel = new Label
             {
-                Text = string.IsNullOrEmpty(info.DownloadUrl) ? "No downloadable asset attached. Use the GitHub release page." : "Ready to download " + (info.AssetName ?? "asset") + (info.DownloadSize > 0 ? " (" + (info.DownloadSize / 1024) + " KB)" : ""),
+                Text = "UJMM does not auto-replace itself. Updates are installed from the Nexus mod page.",
                 Dock = DockStyle.Bottom,
                 Height = 22,
                 Font = new Font("Consolas", 9),
@@ -8585,9 +8674,6 @@ namespace CdJsonModManager
                 BackColor = Color.Transparent
             };
             Controls.Add(statusLabel);
-
-            bar = new ProgressBar { Dock = DockStyle.Bottom, Height = 22, Style = ProgressBarStyle.Continuous, Minimum = 0, Maximum = 100, Visible = false };
-            Controls.Add(bar);
 
             var buttons = new FlowLayoutPanel
             {
@@ -8600,84 +8686,20 @@ namespace CdJsonModManager
             skip.Click += (s, e) => Close();
             buttons.Controls.Add(skip);
 
-            var view = new GradientButton { Text = "View on GitHub", Kind = GradientButton.Style.Default, Width = 150, Height = 36 };
+            var view = new GradientButton { Text = "Source on GitHub", Kind = GradientButton.Style.Default, Width = 150, Height = 36 };
             view.Click += (s, e) =>
             {
                 if (!string.IsNullOrEmpty(info.HtmlUrl)) try { Process.Start(new ProcessStartInfo(info.HtmlUrl) { UseShellExecute = true }); } catch { }
             };
             buttons.Controls.Add(view);
 
-            downloadBtn = new GradientButton { Text = "Download & Restart", Kind = GradientButton.Style.Primary, Width = 200, Height = 36 };
-            downloadBtn.Enabled = !string.IsNullOrEmpty(info.DownloadUrl);
-            downloadBtn.Click += (s, e) => StartDownload();
-            buttons.Controls.Add(downloadBtn);
-            Controls.Add(buttons);
-        }
-
-        private void StartDownload()
-        {
-            downloadBtn.Enabled = false;
-            bar.Visible = true;
-            statusLabel.Text = "Downloading...";
-            var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".cache", "updates");
-            Directory.CreateDirectory(dir);
-            var assetName = info.AssetName ?? "Ultimate JSON Mod Manager.exe";
-            var staging = Path.Combine(dir, assetName);
-
-            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            var open = new GradientButton { Text = "Open Nexus Files", Kind = GradientButton.Style.Primary, Width = 180, Height = 36 };
+            open.Click += (s, e) =>
             {
-                string err;
-                bool ok = UpdateChecker.DownloadAsset(info, staging,
-                    pct => { try { BeginInvoke(new Action(() => { bar.Value = Math.Max(0, Math.Min(100, pct)); statusLabel.Text = "Downloading... " + pct + "%"; })); } catch { } },
-                    out err);
-
-                if (!ok)
-                {
-                    try { BeginInvoke(new Action(() => { statusLabel.Text = "Failed: " + err; downloadBtn.Enabled = true; })); } catch { }
-                    return;
-                }
-
-                if (assetName.ToLowerInvariant().EndsWith(".zip"))
-                {
-                    var extractDir = staging + "_extracted";
-                    try
-                    {
-                        if (Directory.Exists(extractDir)) Directory.Delete(extractDir, true);
-                        Directory.CreateDirectory(extractDir);
-                        using (var fs = File.OpenRead(staging))
-                        using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Read))
-                        {
-                            foreach (var entry in zip.Entries)
-                            {
-                                if (string.IsNullOrEmpty(entry.Name)) continue;
-                                var dest = Path.Combine(extractDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
-                                Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                                using (var src = entry.Open())
-                                using (var dst = File.Create(dest)) src.CopyTo(dst);
-                            }
-                        }
-                        var exe = Directory.GetFiles(extractDir, "*.exe", SearchOption.AllDirectories).FirstOrDefault();
-                        if (exe == null)
-                        {
-                            try { BeginInvoke(new Action(() => { statusLabel.Text = "Update zip didn't contain an .exe"; downloadBtn.Enabled = true; })); } catch { }
-                            return;
-                        }
-                        staging = exe;
-                    }
-                    catch (Exception ex)
-                    {
-                        try { BeginInvoke(new Action(() => { statusLabel.Text = "Extract failed: " + ex.Message; downloadBtn.Enabled = true; })); } catch { }
-                        return;
-                    }
-                }
-
-                try { BeginInvoke(new Action(() => { statusLabel.Text = "Restarting..."; })); } catch { }
-                System.Threading.Thread.Sleep(400);
-                try { UpdateChecker.StageReplaceAndRestart(staging); } catch (Exception ex)
-                {
-                    try { BeginInvoke(new Action(() => { statusLabel.Text = "Restart failed: " + ex.Message; downloadBtn.Enabled = true; })); } catch { }
-                }
-            });
+                try { Process.Start(new ProcessStartInfo(Program.NexusAppFilesUrl) { UseShellExecute = true }); } catch { }
+            };
+            buttons.Controls.Add(open);
+            Controls.Add(buttons);
         }
     }
 
