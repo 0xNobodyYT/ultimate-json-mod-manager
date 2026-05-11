@@ -19,8 +19,8 @@ using System.Xml.XPath;
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.3.4.0")]
-[assembly: AssemblyVersion("1.3.4.0")]
+[assembly: AssemblyFileVersion("1.3.5.0")]
+[assembly: AssemblyVersion("1.3.5.0")]
 
 namespace CdJsonModManager
 {
@@ -31,7 +31,7 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.3.4";
+        public const string AppVersion = "1.3.5";
         public const string NexusGameDomain = "crimsondesert";
         public const int NexusAppModId = 2454;
         public const string NexusAppPageUrl = "https://www.nexusmods.com/crimsondesert/mods/2454";
@@ -2620,9 +2620,9 @@ namespace CdJsonModManager
                     CornerRadius = 12,
                     BorderWidth = 1,
                     Width = Math.Max(260, modCardsHost.ClientSize.Width - 4),
-                    Height = 78,
+                    Height = 84,
                     Margin = new Padding(0, 0, 0, 6),
-                    Padding = new Padding(10, 7, 10, 7),
+                    Padding = new Padding(10, 8, 10, 8),
                     Cursor = Cursors.Hand
                 };
                 card.GradientTopOverride = Color.FromArgb(56, 0, 0, 0);
@@ -2638,7 +2638,7 @@ namespace CdJsonModManager
                 // Title row is tall enough to fully contain the 20px FlatCheck plus a couple of pixels
                 // of breathing room on top/bottom - the previous 24px caused the box to be clipped where
                 // the description row began.
-                stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
+                stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 29));
                 stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 card.Controls.Add(stack);
 
@@ -2655,8 +2655,8 @@ namespace CdJsonModManager
 
                 var check = new FlatCheck
                 {
-                    Width = 20,
-                    Height = 20,
+                    Width = 21,
+                    Height = 21,
                     Anchor = AnchorStyles.None,
                     Margin = new Padding(0, 0, 6, 0),
                     BackColor = Color.Transparent,
