@@ -4742,6 +4742,7 @@ namespace CdJsonModManager
                     installed++;
                 }
             }
+            if (installed > 0) WriteRestoreGuardManifest("post-overlay-apply");
             return installed;
         }
 
@@ -5715,6 +5716,7 @@ namespace CdJsonModManager
                     Log("Recorded original length " + sz + " for " + Path.GetFileName(pazFile));
                 }
             }
+            WriteRestoreGuardManifest("pre-apply");
 
             int totalApplied = 0, totalMismatch = 0, fileSkipped = 0;
             foreach (var pazGroup in workItems.GroupBy(w => w.Entry.PazFile))
@@ -5938,6 +5940,7 @@ namespace CdJsonModManager
             catch (Exception ex)
             {
                 Log("PAMT write failed: " + ex.Message);
+                WriteRestoreGuardManifest("apply-failed-after-paz-append");
                 MessageBox.Show("PAMT write failed: " + ex.Message + "\r\n\r\nThe paz files were appended to but the index wasn't updated. The game will still work; click 'Restore Backup' to truncate the appended bytes.", "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -5991,6 +5994,7 @@ namespace CdJsonModManager
             {
                 Log("papgt update failed: " + ex.Message);
             }
+            WriteRestoreGuardManifest("post-apply");
 
             MessageBox.Show(
                 "Applied " + totalApplied + " patches across " + pamtChanges + " archive entries.\r\n" +
@@ -6006,6 +6010,7 @@ namespace CdJsonModManager
             if (!IsGameFolder(gamePath)) return;
             var backupRoot = PazBackupsRoot();
             if (!Directory.Exists(backupRoot)) return;
+            if (!ValidateRestoreGuard()) return;
 
             // Restore PAMT
             var pamtBackup = Path.Combine(backupRoot, "0.pamt.original");
@@ -6091,6 +6096,8 @@ namespace CdJsonModManager
                 if (File.Exists(papgtBackupRevert)) File.Delete(papgtBackupRevert);
                 if (File.Exists(overlayMarker)) File.Delete(overlayMarker);
                 foreach (var lf in Directory.GetFiles(backupRoot, "*.length.original")) File.Delete(lf);
+                var guard = RestoreGuardManifestPath();
+                if (!string.IsNullOrEmpty(guard) && File.Exists(guard)) File.Delete(guard);
             }
             catch { }
 
@@ -6375,6 +6382,137 @@ namespace CdJsonModManager
             return IsGameFolder(gamePath) ? Path.Combine(gamePath, "_jmm_backups", "0.papgt.original") : "";
         }
 
+        private string RestoreGuardManifestPath()
+        {
+            return IsGameFolder(gamePath) ? Path.Combine(gamePath, "_jmm_backups", "restore_guard.json") : "";
+        }
+
+        private string Sha256File(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return "";
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            using (var fs = File.OpenRead(path))
+            {
+                return BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
+            }
+        }
+
+        private Dictionary<string, object> CaptureRestoreGuardState(string reason)
+        {
+            var backupRoot = PazBackupsRoot();
+            var pazDir = Path.Combine(gamePath, "0008");
+            var pazLengths = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            if (Directory.Exists(pazDir))
+            {
+                foreach (var paz in Directory.GetFiles(pazDir, "*.paz"))
+                {
+                    var name = Path.GetFileName(paz);
+                    if (!Regex.IsMatch(name, @"^\d+\.paz$", RegexOptions.IgnoreCase)) continue;
+                    pazLengths[name] = new FileInfo(paz).Length;
+                }
+            }
+
+            var pamtLive = Path.Combine(gamePath, "0008", "0.pamt");
+            var papgtLive = LivePapgtPath();
+            return new Dictionary<string, object>
+            {
+                ["version"] = 1,
+                ["app_version"] = Program.AppVersion,
+                ["reason"] = reason ?? "",
+                ["created_utc"] = DateTime.UtcNow.ToString("o"),
+                ["game_path"] = gamePath ?? "",
+                ["live_papgt_sha256"] = Sha256File(papgtLive),
+                ["live_pamt_sha256"] = Sha256File(pamtLive),
+                ["backup_papgt_sha256"] = Sha256File(Path.GetFullPath(Path.Combine(backupRoot, "..", "0.papgt.original"))),
+                ["backup_pamt_sha256"] = Sha256File(Path.Combine(backupRoot, "0.pamt.original")),
+                ["paz_lengths"] = pazLengths
+            };
+        }
+
+        private void WriteRestoreGuardManifest(string reason)
+        {
+            if (!IsGameFolder(gamePath)) return;
+            try
+            {
+                var path = RestoreGuardManifestPath();
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.WriteAllText(path, json.Serialize(CaptureRestoreGuardState(reason)), Encoding.UTF8);
+                Log("Backup guard updated (" + reason + ").");
+            }
+            catch (Exception ex)
+            {
+                Log("Backup guard update failed: " + ex.Message);
+            }
+        }
+
+        private bool ValidateRestoreGuard()
+        {
+            var manifestPath = RestoreGuardManifestPath();
+            if (string.IsNullOrEmpty(manifestPath) || !File.Exists(manifestPath))
+            {
+                MessageBox.Show(
+                    "Restore was blocked because this backup does not have UJMM's restore-guard metadata.\r\n\r\n" +
+                    "This can happen with backups made by older builds. To avoid restoring stale files over a newer game update, UJMM will not use this backup automatically.\r\n\r\n" +
+                    "If the game was updated, verify/repair the game files, then create a fresh Backup before applying mods again.",
+                    "Restore blocked", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Log("Restore blocked: restore_guard.json is missing.");
+                return false;
+            }
+
+            try
+            {
+                var manifest = json.DeserializeObject(File.ReadAllText(manifestPath, Encoding.UTF8)) as Dictionary<string, object>;
+                if (manifest == null) throw new InvalidDataException("restore_guard.json is invalid.");
+
+                var expectedPapgt = Convert.ToString(manifest.ContainsKey("live_papgt_sha256") ? manifest["live_papgt_sha256"] : "");
+                var expectedPamt = Convert.ToString(manifest.ContainsKey("live_pamt_sha256") ? manifest["live_pamt_sha256"] : "");
+                var livePapgt = LivePapgtPath();
+                var livePamt = Path.Combine(gamePath, "0008", "0.pamt");
+
+                var problems = new List<string>();
+                if (!string.IsNullOrEmpty(expectedPapgt) && !string.Equals(expectedPapgt, Sha256File(livePapgt), StringComparison.OrdinalIgnoreCase))
+                    problems.Add("meta\\0.papgt no longer matches the UJMM-applied state.");
+                if (!string.IsNullOrEmpty(expectedPamt) && !string.Equals(expectedPamt, Sha256File(livePamt), StringComparison.OrdinalIgnoreCase))
+                    problems.Add("0008\\0.pamt no longer matches the UJMM-applied state.");
+
+                var lengths = manifest.ContainsKey("paz_lengths") ? manifest["paz_lengths"] as Dictionary<string, object> : null;
+                if (lengths != null)
+                {
+                    foreach (var pair in lengths)
+                    {
+                        var paz = Path.Combine(gamePath, "0008", pair.Key);
+                        if (!File.Exists(paz))
+                        {
+                            problems.Add(pair.Key + " is missing.");
+                            continue;
+                        }
+                        long expectedLen;
+                        if (!long.TryParse(Convert.ToString(pair.Value), out expectedLen)) continue;
+                        var actualLen = new FileInfo(paz).Length;
+                        if (actualLen != expectedLen)
+                            problems.Add(pair.Key + " length changed (" + actualLen + " != " + expectedLen + ").");
+                    }
+                }
+
+                if (problems.Count == 0) return true;
+
+                MessageBox.Show(
+                    "Restore was blocked because the current game files no longer match the state UJMM created when the mods were applied.\r\n\r\n" +
+                    string.Join("\r\n", problems.Take(6).ToArray()) +
+                    (problems.Count > 6 ? "\r\n..." : "") +
+                    "\r\n\r\nThis usually means the game was updated or repaired after the backup was made. UJMM will not restore stale backups over updated game files.",
+                    "Restore blocked", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Log("Restore blocked by guard: " + string.Join("; ", problems.ToArray()));
+                return false;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Restore was blocked because restore_guard.json could not be validated:\r\n\r\n" + ex.Message, "Restore blocked", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Log("Restore blocked: guard validation failed: " + ex.Message);
+                return false;
+            }
+        }
+
         private bool EnsurePapgtBackup(bool overwrite)
         {
             if (!IsGameFolder(gamePath))
@@ -6489,6 +6627,7 @@ namespace CdJsonModManager
                     }
                     Log("Backup: recorded length for " + pazCount + " paz file(s).");
                 }
+                WriteRestoreGuardManifest("manual-backup");
 
                 UpdateInspectorBackup();
                 MessageBox.Show(
@@ -6518,6 +6657,7 @@ namespace CdJsonModManager
             {
                 if (EnsurePapgtBackup(true))
                 {
+                    WriteRestoreGuardManifest("manual-papgt-backup");
                     Log("Backed up 0.papgt to backups/ and game/_jmm_backups/.");
                     UpdateInspectorBackup();
                     MessageBox.Show("Backup created.", "Backup complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -6546,6 +6686,7 @@ namespace CdJsonModManager
 
             var answer = MessageBox.Show("Restore 0.papgt from backup?\r\n\r\nThis overwrites the current meta/0.papgt registration file.", "Restore backup", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (answer != DialogResult.Yes) return;
+            if (!ValidateRestoreGuard()) return;
 
             try
             {

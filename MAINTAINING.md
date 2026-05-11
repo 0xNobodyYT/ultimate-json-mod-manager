@@ -57,6 +57,7 @@ UJMM avoids overwriting original game data.
 - Loose overlay folders are packed into new overlay slots instead of changing stock archives.
 - `meta\0.papgt` is updated so the game knows about installed overlay slots.
 - Backups record the pre-apply `0.papgt`, `0008\0.pamt`, and PAZ byte lengths.
+- `restore_guard.json` records the exact post-apply state UJMM expects to restore from. If Steam/Microsoft Store changes the game files after mods were applied, restore is blocked instead of writing stale backups over updated files.
 
 After a Crimson Desert update, users should verify Steam files or otherwise restore a clean game state, then create a fresh backup before applying mods again.
 

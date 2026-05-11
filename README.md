@@ -18,6 +18,7 @@ UJMM imports JSON byte-patch mods, known JSON v3/FIELDS mods, RAW and Browser/UI
 - **Check Match** validates selected byte-patch guards against a fresh archive extraction and verifies overlay source files are readable.
 - **Apply Mods** appends byte-patch entries at 16-byte aligned offsets, redirects matching `0.pamt` records, and refreshes the Pearl Abyss CRC chain.
 - **Backup / Restore** snapshots `meta\0.papgt`, `0008\0.pamt`, and `.paz` lengths so applied byte patches can be reverted.
+- **Restore guard** blocks stale restores if the game was updated or repaired after UJMM applied mods, avoiding old backups being written over newer game files.
 - **ASI loader management** detects the Ultimate ASI Loader, lists installed `.asi` plugins and `.ini` sidecars, and toggles them per file.
 - **Nexus integration** supports SSO, `nxm://` handling, and per-mod update sidecars when Nexus approves the app registration.
 - **Crash reporting** saves sanitized diagnostics under `backups\crashes\` and can open a prefilled GitHub issue.
