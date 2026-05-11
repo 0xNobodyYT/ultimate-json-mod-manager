@@ -3842,6 +3842,11 @@ namespace CdJsonModManager
                 }
             }
 
+            packageCandidates = OutermostPackageCandidates(packageCandidates).ToList();
+            jsonCandidates = jsonCandidates
+                .Where(file => !IsInsideAnyDirectory(file, packageCandidates))
+                .ToList();
+
             var imported = 0;
             var skipped = 0;
             foreach (var file in jsonCandidates.Distinct(StringComparer.OrdinalIgnoreCase))
@@ -3871,13 +3876,17 @@ namespace CdJsonModManager
                     if (File.Exists(package) && IsSupportedArchiveExtension(Path.GetExtension(package))) continue;
                     if (Directory.Exists(package) && IsBrowserModDirectory(package))
                     {
-                        CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
+                        var target = Path.Combine(modsDir, SafePackageName(Path.GetFileName(package)));
+                        CopyDirectory(package, target);
+                        RemoveLegacyPackageArtifacts(target);
                         imported++;
                         Log("Imported Browser/UI mod: " + Path.GetFileName(package));
                     }
                     else if (Directory.Exists(package) && IsRawOverlayDirectory(package))
                     {
-                        CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
+                        var target = Path.Combine(modsDir, SafePackageName(Path.GetFileName(package)));
+                        CopyDirectory(package, target);
+                        RemoveLegacyPackageArtifacts(target);
                         imported++;
                         Log("Imported RAW overlay mod: " + Path.GetFileName(package));
                     }
@@ -3923,6 +3932,96 @@ namespace CdJsonModManager
             LoadMods();
             if (asiImported > 0) RefreshAsi();
             Log("Imported " + imported + " JSON, " + asiImported + " ASI/DLL/INI" + (packagesSkipped > 0 ? ", detected " + packagesSkipped + " package(s) not yet apply-ready" : "") + (skipped > 0 ? ", skipped " + skipped + "." : "."));
+        }
+
+        private IEnumerable<string> OutermostPackageCandidates(IEnumerable<string> candidates)
+        {
+            var dirs = candidates
+                .Where(Directory.Exists)
+                .Select(path => Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => path.Length)
+                .ToList();
+
+            var kept = new List<string>();
+            foreach (var dir in dirs)
+            {
+                if (kept.Any(parent => IsPathInsideDirectory(dir, parent))) continue;
+                kept.Add(dir);
+            }
+            return kept;
+        }
+
+        private static bool IsInsideAnyDirectory(string path, IEnumerable<string> dirs)
+        {
+            var full = Path.GetFullPath(path);
+            return dirs.Any(dir => IsPathInsideDirectory(full, dir));
+        }
+
+        private static bool IsPathInsideDirectory(string path, string dir)
+        {
+            var fullPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var fullDir = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return fullPath.Length > fullDir.Length
+                && fullPath.StartsWith(fullDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void RemoveLegacyPackageArtifacts(string importedPackageRoot)
+        {
+            try
+            {
+                var importedName = Path.GetFileName(importedPackageRoot);
+                var artifactNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var folder in JsonMod.LoadOverlayDirectory(importedPackageRoot, json, IsBrowserModDirectory(importedPackageRoot) ? "BROWSER" : "RAW").OverlayFolders)
+                {
+                    artifactNames.Add(Path.GetFileName(folder));
+                    foreach (var child in Directory.GetDirectories(folder))
+                    {
+                        var childName = Path.GetFileName(child);
+                        if (IsLikelyGameOverlayRoot(childName)) artifactNames.Add(childName);
+                    }
+                }
+                artifactNames.Add("mod");
+                artifactNames.Add("manifest");
+
+                foreach (var name in artifactNames)
+                {
+                    if (string.Equals(name, importedName, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!Regex.IsMatch(name ?? "", @"^\d{4}$", RegexOptions.IgnoreCase)
+                        && !IsLikelyGameOverlayRoot(name)
+                        && !string.Equals(name, "mod", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(name, "manifest", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var dir = Path.Combine(modsDir, name);
+                    if (Directory.Exists(dir) && !File.Exists(Path.Combine(dir, "modinfo.json")) && !File.Exists(Path.Combine(dir, "manifest.json")) && !File.Exists(Path.Combine(dir, "mod.json")))
+                    {
+                        Directory.Delete(dir, true);
+                        Log("Removed old split import artifact: " + name);
+                    }
+
+                    var jsonFile = Path.Combine(modsDir, name + ".json");
+                    if (File.Exists(jsonFile))
+                    {
+                        try
+                        {
+                            var root = json.DeserializeObject(File.ReadAllText(jsonFile, Encoding.UTF8)) as Dictionary<string, object>;
+                            if (root != null && (root.ContainsKey("modinfo") || root.ContainsKey("files_dir") || root.ContainsKey("patches_dir")))
+                            {
+                                File.Delete(jsonFile);
+                                Log("Removed old metadata JSON artifact: " + Path.GetFileName(jsonFile));
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("Legacy artifact cleanup skipped: " + ex.Message);
+            }
         }
 
         private void AddExtractedPackageCandidates(string extractRoot, List<string> packageCandidates)
