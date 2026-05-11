@@ -9,7 +9,7 @@ UJMM imports JSON byte-patch mods, known JSON v3/FIELDS mods, RAW and Browser/UI
 - **Import support** for JSON/FIELDS files, ZIP/7Z/RAR archives, RAW folders, Browser/UI folders, and ASI/DLL/INI runtime files.
 - **Folder-friendly overlay import** for parent folders or inner numbered folders such as `0036` and `files\0012`.
 - **Loose Browser/UI packing**: loose UI files are packed into `0.paz` + `0.pamt` and registered in `meta\0.papgt`; compiled RAW folders copy/register as-is.
-- **JMM-style loose UI patch files**: `.merge` files are merged into the original game file and XML `.patch` operations are materialized before packing, including shorthand `at="#id"` patches and formal `target`/`find` operations.
+- **Loose UI patch files**: `.merge` files are merged into the original game file and XML `.patch` operations are materialized before packing, including shorthand `at="#id"` patches and formal `target`/`find` operations.
 - **Saved mod priority**: move mods up/down or to the bottom from the mod-card context menu. Lower cards apply later and win file conflicts, matching JsonMM's "bottom = highest priority" behavior.
 - **JSON v3/FIELDS support** for known Crimson Desert field-intent mods, including single-target and multi-target DMM-style layouts.
 - **Refresh Mods** reloads manager-side changes after manually editing JSON or overlay files inside the app's `mods/` folder.
@@ -31,6 +31,8 @@ UJMM imports JSON byte-patch mods, known JSON v3/FIELDS mods, RAW and Browser/UI
 4. Click **Settings**, then **Detect** or **Browse** to choose the Crimson Desert folder that contains `bin64\` and numbered archive folders like `0008\`.
 
 Requires .NET Framework 4.7.2 or later.
+
+The release ZIP only contains `Ultimate JSON Mod Manager.exe`. ZIP imports work with built-in .NET support. `.7z` and `.rar` imports use an installed 7-Zip copy when available.
 
 ### Linux / Wine Notes
 
@@ -65,6 +67,12 @@ build.cmd
 Produces `Ultimate JSON Mod Manager.exe`. Requires Roslyn `csc.exe` from Visual Studio Build Tools or a full Visual Studio install. You can set the `CSC` environment variable to a Roslyn-capable compiler path.
 
 Targets .NET Framework 4.x with C# 7.3 language features. Source is in [`src/Program.cs`](src/Program.cs).
+
+## Maintainers
+
+The app is intentionally still a compact WinForms project, but most implementation lives in one file. See [`MAINTAINING.md`](MAINTAINING.md) for a map of the import/apply pipeline, the major `Program.cs` sections, and the safest future refactor order.
+
+Short version: the one-file source is not ideal forever, but it is documented now. If someone else continues the manager, they should split low-risk helper code first and leave `ManagerForm` for last.
 
 ## Tech
 

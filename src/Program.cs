@@ -19,8 +19,8 @@ using System.Xml.XPath;
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.3.4.0")]
-[assembly: AssemblyVersion("1.3.4.0")]
+[assembly: AssemblyFileVersion("1.3.5.0")]
+[assembly: AssemblyVersion("1.3.5.0")]
 
 namespace CdJsonModManager
 {
@@ -31,12 +31,12 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.3.4";
+        public const string AppVersion = "1.3.5";
         public const string NexusGameDomain = "crimsondesert";
         public const int NexusAppModId = 2454;
         public const string NexusAppPageUrl = "https://www.nexusmods.com/crimsondesert/mods/2454";
         public const string NexusAppFilesUrl = "https://www.nexusmods.com/crimsondesert/mods/2454?tab=files";
-        public const string NexusSsoApplication = "0xnobody-ultimatejsonmodmanager"; // app slug used for SSO handshake — assigned by Nexus 2026-05-10
+        public const string NexusSsoApplication = "0xnobody-ultimatejsonmodmanager"; // app slug used for SSO handshake - assigned by Nexus 2026-05-10
         public const string NxmScheme = "nxm";
 
         [STAThread]
@@ -404,7 +404,7 @@ namespace CdJsonModManager
 
             bottomBar = BuildBottomBar();
             bottomBar.Dock = DockStyle.Bottom;
-            bottomBar.Height = 52;
+            bottomBar.Height = 66;
             bottomBar.Margin = new Padding(0, 6, 0, 0);
             Controls.Add(bottomBar);
 
@@ -413,7 +413,7 @@ namespace CdJsonModManager
 
             topBar = BuildTopBar();
             topBar.Dock = DockStyle.Top;
-            topBar.Height = 68;
+            topBar.Height = 72;
             Controls.Add(topBar);
 
             var topGap = new Panel { Dock = DockStyle.Top, Height = 6, BackColor = Color.Transparent };
@@ -426,7 +426,7 @@ namespace CdJsonModManager
                 RowCount = 1,
                 BackColor = Color.Transparent
             };
-            mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340));
+            mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 348));
             mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 330));
             mainGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -434,17 +434,17 @@ namespace CdJsonModManager
             mainGrid.BringToFront();
 
             installPanel = BuildInstallPanel();
-            installPanel.Margin = new Padding(0, 0, 8, 0);
+            installPanel.Margin = new Padding(0, 0, 10, 0);
             installPanel.Dock = DockStyle.Fill;
             mainGrid.Controls.Add(installPanel, 0, 0);
 
             workspacePanel = BuildWorkspacePanel();
-            workspacePanel.Margin = new Padding(8, 0, 8, 0);
+            workspacePanel.Margin = new Padding(10, 0, 10, 0);
             workspacePanel.Dock = DockStyle.Fill;
             mainGrid.Controls.Add(workspacePanel, 1, 0);
 
             inspectorPanel = BuildInspectorPanel();
-            inspectorPanel.Margin = new Padding(8, 0, 0, 0);
+            inspectorPanel.Margin = new Padding(10, 0, 0, 0);
             inspectorPanel.Dock = DockStyle.Fill;
             mainGrid.Controls.Add(inspectorPanel, 2, 0);
         }
@@ -461,7 +461,7 @@ namespace CdJsonModManager
                 BackColor = Color.Transparent
             };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 530));
             grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             bar.Controls.Add(grid);
 
@@ -500,7 +500,7 @@ namespace CdJsonModManager
             }, 0, 0);
             titleStack.Controls.Add(new Label
             {
-                Text = "Crimson Desert · overlay-safe patching, byte-guard validation, Nexus integration",
+                Text = "Crimson Desert - overlay-safe patching, byte-guard validation, Nexus integration",
                 Dock = DockStyle.Fill,
                 Font = new Font("Consolas", 9),
                 ForeColor = Color.FromArgb(169, 157, 124),
@@ -515,53 +515,59 @@ namespace CdJsonModManager
             brandRow.Controls.Add(titleStack, 1, 0);
             grid.Controls.Add(brandRow, 0, 0);
 
-            var pillRow = new FlowLayoutPanel
+            var pillRow = new TableLayoutPanel
             {
-                AutoSize = true,
-                FlowDirection = FlowDirection.LeftToRight,
+                Dock = DockStyle.Fill,
+                ColumnCount = 5,
+                RowCount = 1,
                 BackColor = Color.Transparent,
-                Anchor = AnchorStyles.Right,
-                WrapContents = false
+                Padding = new Padding(0, 6, 0, 0)
             };
-            statusGamePill = new Pill { Text = "Game: checking", DotColor = Color.FromArgb(216, 166, 64) };
-            statusModsPill = new Pill { Text = "0 mods active", DotColor = Color.FromArgb(216, 166, 64) };
-            statusBuildPill = new Pill { Text = "v" + Program.AppVersion, Cursor = Cursors.Hand };
+            pillRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 118));
+            pillRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 102));
+            pillRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            pillRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
+            pillRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
+            pillRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            statusGamePill = new Pill { Text = "Game", DotColor = Color.FromArgb(216, 166, 64), Dock = DockStyle.Fill, Margin = new Padding(0, 0, 6, 0) };
+            statusModsPill = new Pill { Text = "0 active", DotColor = Color.FromArgb(216, 166, 64), Dock = DockStyle.Fill, Margin = new Padding(0, 0, 6, 0) };
+            statusBuildPill = new Pill { Text = "v" + Program.AppVersion, Cursor = Cursors.Hand, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 6, 0) };
             tipsHost.SetToolTip(statusBuildPill, "Application version. Click to check for updates.");
             statusBuildPill.Click += (s, e) => CheckForUpdatesInteractive();
-            pillRow.Controls.Add(statusGamePill);
-            pillRow.Controls.Add(statusModsPill);
-            pillRow.Controls.Add(statusBuildPill);
+            pillRow.Controls.Add(statusGamePill, 0, 0);
+            pillRow.Controls.Add(statusModsPill, 1, 0);
+            pillRow.Controls.Add(statusBuildPill, 2, 0);
 
             updatePill = new Pill { Text = "Up to date", DotColor = Color.FromArgb(101, 197, 134), Visible = false, Cursor = Cursors.Hand };
-            tipsHost.SetToolTip(updatePill, "Update available — click to open the UJMM Nexus files page.");
+            tipsHost.SetToolTip(updatePill, "Update available - click to open the UJMM Nexus files page.");
             updatePill.Click += (s, e) => CheckForUpdatesInteractive();
-            pillRow.Controls.Add(updatePill);
 
             var donateBtn = new GradientButton
             {
-                Text = "♥ Buy me a coffee",
+                Text = "\u2665 Coffee",
                 Kind = GradientButton.Style.Donate,
-                Width = 96,
+                Dock = DockStyle.Fill,
                 Height = 30,
-                Margin = new Padding(6, 0, 0, 0)
+                Margin = new Padding(0, 0, 6, 0)
             };
             donateBtn.Click += (s, e) =>
             {
                 try { Process.Start(new ProcessStartInfo(Program.DonateUrl) { UseShellExecute = true }); }
                 catch (Exception ex) { Log("Could not open donate link: " + ex.Message); }
             };
-            pillRow.Controls.Add(donateBtn);
+            pillRow.Controls.Add(donateBtn, 3, 0);
 
             var reportBtn = new GradientButton
             {
                 Text = "Report",
                 Kind = GradientButton.Style.Default,
-                Width = 92,
+                Dock = DockStyle.Fill,
                 Height = 30,
-                Margin = new Padding(6, 0, 0, 0)
+                Margin = new Padding(0)
             };
             reportBtn.Click += (s, e) => CrashReporter.OpenManualReport(this);
-            pillRow.Controls.Add(reportBtn);
+            pillRow.Controls.Add(reportBtn, 4, 0);
 
             grid.Controls.Add(pillRow, 1, 0);
 
@@ -600,11 +606,12 @@ namespace CdJsonModManager
                 AutoSize = true,
                 FlowDirection = FlowDirection.LeftToRight,
                 BackColor = Color.Transparent,
-                WrapContents = false
+                WrapContents = false,
+                Padding = new Padding(0, 4, 0, 0)
             };
 
             var backup = NewGradientButton("Backup", GradientButton.Style.Safe, 96, CreateFullBackup);
-            tipsHost.SetToolTip(backup, "Save the current game state as the revert point. Backs up meta\\0.papgt, 0008\\0.pamt, and the byte lengths of each .paz file. Run this after a Crimson Desert update (or after Steam → Verify Integrity of Game Files) so 'Restore Backup' has fresh backups to restore from.");
+            tipsHost.SetToolTip(backup, "Save the current game state as the revert point. Backs up meta\\0.papgt, 0008\\0.pamt, and the byte lengths of each .paz file. Run this after a Crimson Desert update (or after Steam -> Verify Integrity of Game Files) so 'Restore Backup' has fresh backups to restore from.");
             var dryRun = NewGradientButton("Check", GradientButton.Style.Default, 86, RunValidation);
             tipsHost.SetToolTip(dryRun, "Check that selected mods match the current game version (no changes applied). Confirms each patch's 'original' bytes match what's actually in your installed Crimson Desert. Useful after a Steam game update.");
             var apply = NewGradientButton("Apply", GradientButton.Style.Primary, 92, ApplyOverlayStub);
@@ -790,7 +797,7 @@ namespace CdJsonModManager
         }
 
         // Custom swatch: shows the saved custom colour (or a faint placeholder pattern if none yet).
-        // Click → opens ColorDialog; selection saves to config and applies immediately.
+        // Click -> opens ColorDialog; selection saves to config and applies immediately.
         private ThemeSwatch MakeCustomSwatch()
         {
             var saved = ConfigString("customAccent");
@@ -809,7 +816,7 @@ namespace CdJsonModManager
                 // Render as a dashed "+" placeholder until the user picks a colour for the first time.
                 IsEmptyPlaceholder = !hasSaved
             };
-            tipsHost.SetToolTip(sw, "Custom theme — click to pick your own accent colour. Saved across launches.");
+            tipsHost.SetToolTip(sw, "Custom theme - click to pick your own accent colour. Saved across launches.");
             sw.Click += (sender, args) =>
             {
                 using (var cd = new ColorDialog { FullOpen = true, AnyColor = true })
@@ -1140,7 +1147,7 @@ namespace CdJsonModManager
             listLayoutInner.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             listHost.Controls.Add(listLayoutInner);
 
-            // Top row: [search box] [All On] [All Off] — "All On"/"All Off" bulk-toggle every patch
+            // Top row: [search box] [All On] [All Off] - "All On"/"All Off" bulk-toggle every patch
             // currently visible in the list (so they respect the active search filter).
             var topRow = new TableLayoutPanel
             {
@@ -1509,7 +1516,7 @@ namespace CdJsonModManager
                 BackColor = Color.Transparent
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 116)); // status card
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));  // actions row
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));  // actions row
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));  // feed header
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // feed
             tab.Controls.Add(layout);
@@ -1573,28 +1580,30 @@ namespace CdJsonModManager
                 Dock = DockStyle.Fill,
                 BackColor = Color.Transparent,
                 FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = true,
+                WrapContents = false,
                 AutoScroll = false,
-                Padding = new Padding(0, 8, 0, 6)
+                Padding = new Padding(0, 6, 0, 6)
             };
 
             nexusConnectButton = new GradientButton
             {
                 Text = "Sign in with Nexus",
                 Kind = GradientButton.Style.Primary,
-                Width = 176,
-                Height = 38,
+                Width = 134,
+                Height = 32,
                 Margin = new Padding(0, 0, 8, 0)
             };
-            tipsHost.SetToolTip(nexusConnectButton, "One-click sign-in via your browser. No password or key required — just approve the app on nexusmods.com.");
+            tipsHost.SetToolTip(nexusConnectButton, "One-click sign-in via your browser. No password or key required - just approve the app on nexusmods.com.");
             nexusConnectButton.Click += (s, e) => OnNexusConnectClick();
             actions.Controls.Add(nexusConnectButton);
 
-            var openBtn = NewGradientButton("Browse mods on Nexus", GradientButton.Style.Default, 190, () => SafeOpenUrl("https://www.nexusmods.com/" + Program.NexusGameDomain));
+            var openBtn = NewGradientButton("Browse Mods", GradientButton.Style.Default, 126, () => SafeOpenUrl("https://www.nexusmods.com/" + Program.NexusGameDomain));
+            openBtn.Height = 32;
             tipsHost.SetToolTip(openBtn, "Open the Crimson Desert mods page on Nexus in your browser.");
             actions.Controls.Add(openBtn);
 
-            var refreshBtn = NewGradientButton("Refresh Feed", GradientButton.Style.Default, 124, RefreshNexusFeed);
+            var refreshBtn = NewGradientButton("Refresh", GradientButton.Style.Default, 88, RefreshNexusFeed);
+            refreshBtn.Height = 32;
             tipsHost.SetToolTip(refreshBtn, "Reload the recently-updated mods list from Nexus.");
             actions.Controls.Add(refreshBtn);
 
@@ -1605,7 +1614,7 @@ namespace CdJsonModManager
                 Font = new Font("Consolas", 8.5f),
                 ForeColor = Color.FromArgb(112, 104, 79),
                 BackColor = Color.Transparent,
-                Padding = new Padding(8, 12, 0, 0),
+                Padding = new Padding(6, 9, 0, 0),
                 Margin = new Padding(0, 0, 8, 0)
             };
             actions.Controls.Add(nexusRateLabel);
@@ -1618,9 +1627,9 @@ namespace CdJsonModManager
                 ForeColor = Color.FromArgb(110, 100, 75),
                 BackColor = Color.Transparent,
                 Cursor = Cursors.Hand,
-                Padding = new Padding(0, 16, 0, 0)
+                Padding = new Padding(0, 10, 0, 0)
             };
-            tipsHost.SetToolTip(devLink, "Developer/testing only — manually paste a Nexus API key. Regular users sign in with the button above.");
+            tipsHost.SetToolTip(devLink, "Developer/testing only - manually paste a Nexus API key. Regular users sign in with the button above.");
             devLink.Click += (s, e) => PromptPasteApiKey();
             actions.Controls.Add(devLink);
 
@@ -1678,11 +1687,11 @@ namespace CdJsonModManager
                 if (connected)
                 {
                     var status = nexusIsPremium ? "Premium" : "Standard";
-                    nexusUserLabel.Text = "Signed in as " + (string.IsNullOrEmpty(nexusUserName) ? "your Nexus account" : nexusUserName) + " · " + status + ".\r\nYou can now click 'Mod Manager Download' on any Crimson Desert mod page and the file lands here automatically.";
+                    nexusUserLabel.Text = "Signed in as " + (string.IsNullOrEmpty(nexusUserName) ? "your Nexus account" : nexusUserName) + " - " + status + ".\r\nYou can now click 'Mod Manager Download' on any Crimson Desert mod page and the file lands here automatically.";
                 }
                 else
                 {
-                    nexusUserLabel.Text = "Sign in with your Nexus account to enable one-click downloads from any Crimson Desert mod page (the 'Mod Manager Download' button) and automatic update detection.\r\nThe sign-in flow opens your browser — no password or key required, just one click.";
+                    nexusUserLabel.Text = "Sign in with your Nexus account to enable one-click downloads from any Crimson Desert mod page (the 'Mod Manager Download' button) and automatic update detection.\r\nThe sign-in flow opens your browser - no password or key required, just one click.";
                 }
             }
         }
@@ -1725,7 +1734,7 @@ namespace CdJsonModManager
                         MessageBox.Show(
                             "Nexus sign-in is not yet enabled for this app.\r\n\r\n" +
                             "We're waiting for Nexus Mods to register Ultimate JSON Mod Manager so the browser sign-in can work. " +
-                            "Once it's approved, this button will Just Work — no key pasting needed.\r\n\r\n" +
+                            "Once it's approved, this button will Just Work - no key pasting needed.\r\n\r\n" +
                             "In the meantime you can still browse mods on Nexus normally.",
                             "Sign-in coming soon",
                             MessageBoxButtons.OK,
@@ -1895,7 +1904,7 @@ namespace CdJsonModManager
 
             var meta = new Label
             {
-                Text = "v" + version + " · " + downloads.ToString("N0") + " ↓",
+                Text = "v" + version + " - " + downloads.ToString("N0") + " downloads",
                 AutoSize = true,
                 Font = new Font("Consolas", 8f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(112, 104, 79),
@@ -2174,7 +2183,7 @@ namespace CdJsonModManager
                     }
                     catch { }
 
-                    setStatus("Done — " + imported);
+                    setStatus("Done - " + imported);
                     BeginInvoke(new Action(() =>
                     {
                         LoadMods();
@@ -2266,11 +2275,11 @@ namespace CdJsonModManager
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
-            // Paint the strip background dark first — the default TabControl background is system grey and bleeds through under FlatButtons.
+            // Paint the strip background dark first - the default TabControl background is system grey and bleeds through under FlatButtons.
             using (var stripBrush = new SolidBrush(Color.FromArgb(14, 15, 11)))
                 g.FillRectangle(stripBrush, rect);
 
-            var pad = new Rectangle(rect.X + 2, rect.Y + 2, rect.Width - 4, rect.Height - 2);
+            var pad = new Rectangle(rect.X + 6, rect.Y + 2, rect.Width - 12, rect.Height - 3);
             using (var path = RoundedPanel.RoundedRect(pad, 10))
             {
                 if (isActive)
@@ -2327,7 +2336,7 @@ namespace CdJsonModManager
 
             checkGuards = new CheckGridRow("Original bytes", "ready", BadgeKind.Neutral) { Margin = new Padding(0, 0, 0, 6), Dock = DockStyle.Fill };
             checkOverlay = new CheckGridRow("Overlay target", "0036", BadgeKind.Neutral) { Margin = new Padding(0, 0, 0, 6), Dock = DockStyle.Fill };
-            checkConflicts = new CheckGridRow("Conflicts", "—", BadgeKind.Neutral) { Margin = new Padding(0, 0, 0, 6), Dock = DockStyle.Fill };
+            checkConflicts = new CheckGridRow("Conflicts", "-", BadgeKind.Neutral) { Margin = new Padding(0, 0, 0, 6), Dock = DockStyle.Fill };
             checkBackup = new CheckGridRow("Backup", "missing", BadgeKind.Warn) { Margin = new Padding(0, 0, 0, 0), Dock = DockStyle.Fill };
             checkHost.Controls.Add(checkGuards, 0, 0);
             checkHost.Controls.Add(checkOverlay, 0, 1);
@@ -2335,7 +2344,7 @@ namespace CdJsonModManager
             checkHost.Controls.Add(checkBackup, 0, 3);
             layout.Controls.Add(checkHost, 0, 1);
 
-            // (Inspector backup button removed — Create Backup is now in the bottom action bar.)
+            // (Inspector backup button removed - Create Backup is now in the bottom action bar.)
 
             logBox = new TextBox
             {
@@ -2623,7 +2632,7 @@ namespace CdJsonModManager
                     BackColor = Color.Transparent
                 };
                 // Title row is tall enough to fully contain the 20px FlatCheck plus a couple of pixels
-                // of breathing room on top/bottom — the previous 24px caused the box to be clipped where
+                // of breathing room on top/bottom - the previous 24px caused the box to be clipped where
                 // the description row began.
                 stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
                 stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -2708,7 +2717,7 @@ namespace CdJsonModManager
                 stack.Controls.Add(metaLabel, 0, 1);
 
                 check.Checked = active.Contains(Path.GetFileName(mod.Path)) || active.Contains(mod.Name);
-                tipsHost.SetToolTip(check, "Select / deselect this mod. Multiple mods can be selected — the patch list shows what would apply.");
+                tipsHost.SetToolTip(check, "Select / deselect this mod. Multiple mods can be selected - the patch list shows what would apply.");
 
                 var menu = new ContextMenuStrip();
                 menu.Items.Add("Uninstall / Disable", null, (s, e) => DisableMod(capturedMod));
@@ -2931,7 +2940,7 @@ namespace CdJsonModManager
         private void StartNexusUpdateTimer()
         {
             // Nexus rate-limit guidance (per their May 2026 reply): poll mod updates AT MOST once per session.
-            // We do a single startup check 8s after the form is up — never on a recurring timer — and
+            // We do a single startup check 8s after the form is up - never on a recurring timer - and
             // refreshing the Nexus tab triggers an explicit on-demand check via the "Refresh Feed" button.
             if (nexusUpdateTimer != null) return;
             var kickoff = new System.Windows.Forms.Timer { Interval = 8000 };
@@ -3345,7 +3354,7 @@ namespace CdJsonModManager
             if (patchList == null) return;
 
             string filter = patchSearchBox != null ? (patchSearchBox.Text ?? "").Trim().ToLowerInvariant() : "";
-            // Show all active (checked) mods' patches first — these will actually apply.
+            // Show all active (checked) mods' patches first - these will actually apply.
             // Then, if the focused mod isn't already active, show its patches as a preview.
             var pending = new List<ListViewItem>(256);
             int activeCount = 0;
@@ -3455,7 +3464,7 @@ namespace CdJsonModManager
                     {
                         continue;
                     }
-                    var item = new ListViewItem("preview · " + label);
+                    var item = new ListViewItem("preview - " + label);
                     item.SubItems.Add(target);
                     item.ForeColor = Color.FromArgb(150, 138, 100);
                     item.Tag = key;
@@ -3485,8 +3494,8 @@ namespace CdJsonModManager
                 foreach (var mod in mods) total += mod.Changes.Count;
                 var lead = activeAppliedCount + " / " + total + " will apply";
                 if (activeOverlayCount > 0) lead += " + " + activeOverlayCount + " overlay file" + (activeOverlayCount == 1 ? "" : "s");
-                if (previewCount > 0) lead += " · " + previewCount + " preview";
-                if (filter.Length > 0) lead += " · filtered: \"" + filter + "\"";
+                if (previewCount > 0) lead += " - " + previewCount + " preview";
+                if (filter.Length > 0) lead += " - filtered: \"" + filter + "\"";
                 if (previewOverlayCount > 0) lead += " - " + previewOverlayCount + " overlay file preview" + (previewOverlayCount == 1 ? "" : "s");
                 workspaceCounter.Text = lead;
             }
@@ -3537,9 +3546,9 @@ namespace CdJsonModManager
             if (!string.IsNullOrWhiteSpace(change.TargetDisplay)) return change.TargetDisplay;
             var fileName = string.IsNullOrEmpty(change.GameFile) ? "" : Path.GetFileName(change.GameFile);
             var patchedPreview = !string.IsNullOrEmpty(change.Patched)
-                ? "  → " + change.Patched.Replace(" ", "").ToUpperInvariant()
+                ? "  -> " + change.Patched.Replace(" ", "").ToUpperInvariant()
                 : "";
-            if (patchedPreview.Length > 18) patchedPreview = patchedPreview.Substring(0, 18) + "…";
+            if (patchedPreview.Length > 18) patchedPreview = patchedPreview.Substring(0, 18) + "...";
             return fileName + "  +0x" + change.Offset.ToString("X") + patchedPreview;
         }
 
@@ -3584,7 +3593,7 @@ namespace CdJsonModManager
                 else if (Directory.Exists(mod.Path)) Directory.Delete(mod.Path, true);
                 Log("Deleted mod: " + mod.Name + ".");
 
-                // Surgical UI update — drop just this card instead of rebuilding the whole list (which flickers + scroll-resets).
+                // Surgical UI update - drop just this card instead of rebuilding the whole list (which flickers + scroll-resets).
                 if (modCards.ContainsKey(mod.Path))
                 {
                     var card = modCards[mod.Path];
@@ -3640,13 +3649,13 @@ namespace CdJsonModManager
             if (statusGamePill != null)
             {
                 var ok = IsGameFolder(gamePath);
-                statusGamePill.Text = ok ? "Game detected" : "Game missing";
+                statusGamePill.Text = ok ? "Game OK" : "No game";
                 statusGamePill.DotColor = ok ? Color.FromArgb(101, 197, 134) : currentTheme.Accent;
             }
             if (statusModsPill != null)
             {
                 var n = activeBoxes.Values.Count(box => box.Checked);
-                statusModsPill.Text = n + " mods active";
+                statusModsPill.Text = n + " active";
                 statusModsPill.DotColor = n > 0 ? currentTheme.Accent : Color.FromArgb(112, 104, 79);
             }
         }
@@ -4216,7 +4225,7 @@ namespace CdJsonModManager
                 loaderLabel.Text = "ASI loader: " + (loaders.Count == 0 ? "not detected" : string.Join(", ", loaders));
             }
 
-            // Show only ASI mods (and their per-mod .ini sidecars) — not the hundreds of game-shipped DLLs.
+            // Show only ASI mods (and their per-mod .ini sidecars) - not the hundreds of game-shipped DLLs.
             var asiFiles = Directory.GetFiles(bin64)
                 .Where(path => path.EndsWith(".asi", StringComparison.OrdinalIgnoreCase)
                     || path.EndsWith(".asi.disabled", StringComparison.OrdinalIgnoreCase))
@@ -4367,13 +4376,13 @@ namespace CdJsonModManager
             if (issues.Count == 0)
             {
                 Log("Match check passed.");
-                MessageBox.Show("Mods match this game version — every patch's original bytes match what's installed.", "Match check passed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Mods match this game version - every patch's original bytes match what's installed.", "Match check passed", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
                 foreach (var issue in issues.Take(80)) Log(issue);
                 if (issues.Count > 80) Log("... plus " + (issues.Count - 80) + " more issue(s).");
-                MessageBox.Show("Some patches don't match the installed game (likely a Crimson Desert update). Check the inspector log for details — those mods may need to be updated for this game version.", "Match failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Some patches don't match the installed game (likely a Crimson Desert update). Check the inspector log for details - those mods may need to be updated for this game version.", "Match failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -4399,8 +4408,8 @@ namespace CdJsonModManager
         //   4. Surgically rewrite the entry's pazOffset/compSize/origSize in the PAMT.
         //
         // Backups (one-time, per archive):
-        //   _jmm_backups\0008\0.pamt.original           — full PAMT bytes pre-apply
-        //   _jmm_backups\0008\<N>.paz.length.original   — original byte length of the .paz
+        //   _jmm_backups\0008\0.pamt.original           - full PAMT bytes pre-apply
+        //   _jmm_backups\0008\<N>.paz.length.original   - original byte length of the .paz
         // Revert truncates each .paz back to its recorded length and restores the PAMT.
         // No multi-GB paz copies, just length tracking + header replay.
 
@@ -5634,10 +5643,10 @@ namespace CdJsonModManager
             var pre = MessageBox.Show(
                 "Apply " + byGameFile.Count + " modded game file(s) to your Crimson Desert install?\r\n\r\n" +
                 "How it works:\r\n" +
-                "  • Modded bytes are APPENDED to the existing archive(s) — original data is never overwritten.\r\n" +
-                "  • The archive index (PAMT) is patched in place to point at the new bytes.\r\n" +
-                "  • Pre-apply length of each archive + the original PAMT are saved to <game>\\_jmm_backups\\.\r\n" +
-                "  • Click 'Restore Backup' to fully revert (truncates archives back, restores the PAMT).\r\n\r\n" +
+                "  * Modded bytes are APPENDED to the existing archive(s) - original data is never overwritten.\r\n" +
+                "  * The archive index (PAMT) is patched in place to point at the new bytes.\r\n" +
+                "  * Pre-apply length of each archive + the original PAMT are saved to <game>\\_jmm_backups\\.\r\n" +
+                "  * Click 'Restore Backup' to fully revert (truncates archives back, restores the PAMT).\r\n\r\n" +
                 "Continue?",
                 "Apply mods?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (pre != DialogResult.Yes) return;
@@ -5666,7 +5675,7 @@ namespace CdJsonModManager
                     var e = pamtData.Entries[i];
                     if (string.IsNullOrEmpty(e.Path)) continue;
                     if (!e.Path.ToLowerInvariant().Contains(basename)) continue;
-                    if (e.Path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) continue; // encrypted — skip
+                    if (e.Path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) continue; // encrypted - skip
                     workItems.Add(new ApplyWork { Entry = e, EntryIndex = i, Changes = pair.Value });
                 }
             }
@@ -5676,10 +5685,10 @@ namespace CdJsonModManager
                 return;
             }
 
-            // Backups (idempotent — if already present, do not overwrite — they reflect pre-FIRST-apply state)
+            // Backups (idempotent - if already present, do not overwrite - they reflect pre-FIRST-apply state)
             var backupRoot = PazBackupsRoot();
             Directory.CreateDirectory(backupRoot);
-            // Back up papgt too — Apply now updates it (PamtCrc + papgt HeaderCrc) so we need a revert source.
+            // Back up papgt too - Apply now updates it (PamtCrc + papgt HeaderCrc) so we need a revert source.
             var papgtLive = Path.Combine(gamePath, "meta", "0.papgt");
             var papgtBackup = Path.Combine(backupRoot, "..", "0.papgt.original"); // _jmm_backups/0.papgt.original
             papgtBackup = Path.GetFullPath(papgtBackup);
@@ -5735,7 +5744,7 @@ namespace CdJsonModManager
                             {
                                 if (w.Entry.CompressionType != 2)
                                 {
-                                    Log("Skipping " + w.Entry.Path + " — unsupported compression type " + w.Entry.CompressionType);
+                                    Log("Skipping " + w.Entry.Path + " - unsupported compression type " + w.Entry.CompressionType);
                                     fileSkipped++;
                                     continue;
                                 }
@@ -5782,7 +5791,7 @@ namespace CdJsonModManager
                             }
                             if (applied == 0)
                             {
-                                Log("Skipped " + w.Entry.Path + " — no patches succeeded.");
+                                Log("Skipped " + w.Entry.Path + " - no patches succeeded.");
                                 fileSkipped++;
                                 totalMismatch += mismatch;
                                 continue;
@@ -5791,7 +5800,7 @@ namespace CdJsonModManager
                             // Write the patched data UNCOMPRESSED:
                             //   compSize == origSize signals "no decompression needed"
                             //   compType bits (16..19) cleared to 0
-                            // This avoids any LZ4 encoder ambiguity — the engine reads raw bytes.
+                            // This avoids any LZ4 encoder ambiguity - the engine reads raw bytes.
                             var rawBytes = decompressed;
 
                             // Pad paz file to a 16-byte boundary BEFORE this entry (the engine bounds-checks 16-byte alignment).
@@ -5833,7 +5842,7 @@ namespace CdJsonModManager
                 }
             }
 
-            // Patch PAMT in memory — surgical 16-byte edit per entry (skip nodeRef, write pazOffset/compSize/origSize/flags)
+            // Patch PAMT in memory - surgical 16-byte edit per entry (skip nodeRef, write pazOffset/compSize/origSize/flags)
             var pamtNew = (byte[])pamtData.PamtBytes.Clone();
             int pamtChanges = 0;
             foreach (var w in workItems)
@@ -5842,7 +5851,7 @@ namespace CdJsonModManager
                 int eOff = pamtData.EntrySectionStart + w.EntryIndex * 20;
                 if (eOff + 20 > pamtNew.Length)
                 {
-                    Log("PAMT entry offset out of range for " + w.Entry.Path + " — skipped.");
+                    Log("PAMT entry offset out of range for " + w.Entry.Path + " - skipped.");
                     continue;
                 }
                 ArchiveExtractor.WriteU32LE(pamtNew, eOff + 4, w.NewPazOffset);
@@ -5870,7 +5879,7 @@ namespace CdJsonModManager
                 try { newLen = new FileInfo(pazFile).Length; } catch { continue; }
                 if (newLen > uint.MaxValue)
                 {
-                    Log("WARNING: " + name + " grew past 4 GB — paz size field can't represent it.");
+                    Log("WARNING: " + name + " grew past 4 GB - paz size field can't represent it.");
                     continue;
                 }
                 int sizeOffset = 16 + pazIndex * 12 + 4;
@@ -5891,10 +5900,10 @@ namespace CdJsonModManager
 
             // ============================================================
             // Compute and write Pearl Abyss CRCs (the part we missed for hours):
-            //   • per-paz Crc — PaChecksum of the .paz file content, at PAMT[12+pazIdx*12+4]
-            //   • PAMT HeaderCrc — PaChecksum of pamt[12..end], at PAMT[0..3]
-            //   • papgt's PamtCrc field for "0008" — copy of the new HeaderCrc
-            //   • papgt's own HeaderCrc — PaChecksum of papgt[12..end], at papgt[4..7]
+            //   * per-paz Crc - PaChecksum of the .paz file content, at PAMT[12+pazIdx*12+4]
+            //   * PAMT HeaderCrc - PaChecksum of pamt[12..end], at PAMT[0..3]
+            //   * papgt's PamtCrc field for "0008" - copy of the new HeaderCrc
+            //   * papgt's own HeaderCrc - PaChecksum of papgt[12..end], at papgt[4..7]
             // Without these, the engine refuses to launch.
             // ============================================================
             int crcUpdates = 0;
@@ -5961,7 +5970,7 @@ namespace CdJsonModManager
                     }
                     if (!foundEntry)
                     {
-                        Log("WARNING: archive '" + pamtDirName + "' not found in papgt — engine may reject changes.");
+                        Log("WARNING: archive '" + pamtDirName + "' not found in papgt - engine may reject changes.");
                     }
                     else
                     {
@@ -5975,7 +5984,7 @@ namespace CdJsonModManager
                 }
                 else
                 {
-                    Log("WARNING: meta/0.papgt not found — engine probably won't launch with modified PAMT.");
+                    Log("WARNING: meta/0.papgt not found - engine probably won't launch with modified PAMT.");
                 }
             }
             catch (Exception ex)
@@ -6069,7 +6078,7 @@ namespace CdJsonModManager
                     }
                     else if (curLen < origLen)
                     {
-                        Log("WARNING: " + pazName + " is shorter (" + curLen + ") than recorded original (" + origLen + ") — not truncating. Restore from your Steam files if needed.");
+                        Log("WARNING: " + pazName + " is shorter (" + curLen + ") than recorded original (" + origLen + ") - not truncating. Restore from your Steam files if needed.");
                     }
                 }
                 catch (Exception ex) { Log("Truncate failed for " + lengthFile + ": " + ex.Message); }
@@ -6088,7 +6097,7 @@ namespace CdJsonModManager
             if (restored > 0) Log("Apply reverted: " + restored + " archive(s) restored to pre-apply state.");
         }
 
-        // Legacy loose-file probe — kept for any orphaned probe writes from earlier sessions.
+        // Legacy loose-file probe - kept for any orphaned probe writes from earlier sessions.
         private void ApplyAsLooseFiles()
         {
             if (!IsGameFolder(gamePath))
@@ -6103,7 +6112,7 @@ namespace CdJsonModManager
                 return;
             }
 
-            // Collect (game_file → list of changes) across all active mods using each mod's preset.
+            // Collect (game_file -> list of changes) across all active mods using each mod's preset.
             var byGameFile = new Dictionary<string, List<PatchChange>>(StringComparer.OrdinalIgnoreCase);
             foreach (var mod in selected)
             {
@@ -6124,9 +6133,9 @@ namespace CdJsonModManager
 
             var pre = MessageBox.Show(
                 "This will write modded copies of " + byGameFile.Count + " game file(s) into your Crimson Desert folder as loose files (the engine reads loose files first).\r\n\r\n" +
-                "• Original game archives are NEVER modified.\r\n" +
-                "• Any pre-existing file at a target path is backed up first.\r\n" +
-                "• Click 'Restore Backup' to fully revert.\r\n\r\n" +
+                "* Original game archives are NEVER modified.\r\n" +
+                "* Any pre-existing file at a target path is backed up first.\r\n" +
+                "* Click 'Restore Backup' to fully revert.\r\n\r\n" +
                 "Continue?",
                 "Apply mods?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (pre != DialogResult.Yes) return;
@@ -6146,7 +6155,7 @@ namespace CdJsonModManager
                     Log("Apply: could not extract " + logicalFile + ". Skipped.");
                     continue;
                 }
-                // Derive the archive-internal path (relative to cache root) — that's where we'll write loose
+                // Derive the archive-internal path (relative to cache root) - that's where we'll write loose
                 var archiveRelPath = MakeRelative(cacheDir, cachedPath);
                 if (string.IsNullOrEmpty(archiveRelPath))
                 {
@@ -6195,11 +6204,11 @@ namespace CdJsonModManager
 
                 if (mismatched > 0 && applied == 0)
                 {
-                    Log("Apply: skipping " + logicalFile + " entirely — every patch failed its byte guard.");
+                    Log("Apply: skipping " + logicalFile + " entirely - every patch failed its byte guard.");
                     continue;
                 }
                 work.Add(Tuple.Create(archiveRelPath, bytes, mismatched, applied));
-                Log("Apply: prepared " + logicalFile + " — " + applied + " patches applied" + (mismatched > 0 ? ", " + mismatched + " skipped" : ""));
+                Log("Apply: prepared " + logicalFile + " - " + applied + " patches applied" + (mismatched > 0 ? ", " + mismatched + " skipped" : ""));
             }
 
             if (work.Count == 0)
@@ -6260,8 +6269,8 @@ namespace CdJsonModManager
                 "Wrote " + written + " modded file(s) to your game folder as loose files.\r\n" +
                 (backedUp > 0 ? backedUp + " pre-existing file(s) were backed up to <game>\\_ujmm_probe_backups\\.\r\n" : "") +
                 "\r\nLaunch Crimson Desert and test the modded behavior.\r\n" +
-                "If the changes take effect → loose-file overlay works.\r\n" +
-                "If they don't → click 'Restore Backup' to revert and we'll try the next approach.",
+                "If the changes take effect -> loose-file overlay works.\r\n" +
+                "If they don't -> click 'Restore Backup' to revert and we'll try the next approach.",
                 "Mods applied (probe)", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -6409,13 +6418,13 @@ namespace CdJsonModManager
             var ans = MessageBox.Show(
                 "Save the current game state as the revert point?\r\n\r\n" +
                 "What gets saved (~few MB total):\r\n" +
-                "  • meta\\0.papgt (registration file)\r\n" +
-                "  • 0008\\0.pamt (archive index)\r\n" +
-                "  • Byte length of each 0008\\<N>.paz file\r\n\r\n" +
+                "  * meta\\0.papgt (registration file)\r\n" +
+                "  * 0008\\0.pamt (archive index)\r\n" +
+                "  * Byte length of each 0008\\<N>.paz file\r\n\r\n" +
                 "When to run this:\r\n" +
-                "  • After Crimson Desert updates and BEFORE applying any mods\r\n" +
-                "  • After Steam → Verify Integrity of Game Files\r\n" +
-                "  • Whenever you're confident the current state is vanilla\r\n\r\n" +
+                "  * After Crimson Desert updates and BEFORE applying any mods\r\n" +
+                "  * After Steam -> Verify Integrity of Game Files\r\n" +
+                "  * Whenever you're confident the current state is vanilla\r\n\r\n" +
                 "If mods are currently applied, click 'Restore Backup' first so the backup captures the vanilla state.\r\n\r\n" +
                 "Continue?",
                 "Create Backup", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
@@ -6837,26 +6846,26 @@ namespace CdJsonModManager
                 }
             }
 
-            var textX = 12;
+            var dotSpace = DotColor != Color.Empty ? 20 : 0;
             if (DotColor != Color.Empty)
             {
                 using (var glow = new SolidBrush(Color.FromArgb(80, DotColor)))
                     g.FillEllipse(glow, 7, Height / 2 - 7, 14, 14);
                 using (var dot = new SolidBrush(DotColor))
                     g.FillEllipse(dot, 9, Height / 2 - 5, 10, 10);
-                textX = 26;
             }
             var fg = BorderlessTag ? PillTextColor : ForeColor;
             var size = TextRenderer.MeasureText(g, Text ?? "", Font, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding);
+            var textX = Math.Max(dotSpace + 6, (Width - size.Width + dotSpace) / 2);
             var y = (Height - size.Height) / 2;
             TextRenderer.DrawText(g, Text ?? "", Font, new Point(textX, y), fg, TextFormatFlags.NoPadding);
         }
     }
 
-    // Double-buffered scrolling Panel — used for the install panel body. Uses standard
+    // Double-buffered scrolling Panel - used for the install panel body. Uses standard
     // DoubleBuffered (NOT WS_EX_COMPOSITED, which defers paint passes and breaks live thumb tracking).
     // We additionally handle WM_VSCROLL with SB_THUMBTRACK explicitly: WinForms' default ScrollableControl
-    // updates AutoScrollPosition on thumb track but doesn't always paint immediately — calling Refresh
+    // updates AutoScrollPosition on thumb track but doesn't always paint immediately - calling Refresh
     // forces an immediate repaint so the user sees the content move while their mouse is still held.
     internal sealed class BufferedScrollPanel : Panel
     {
@@ -6889,7 +6898,7 @@ namespace CdJsonModManager
         }
     }
 
-    // Same trick for FlowLayoutPanel — used for the mod card host so the cards repaint smoothly
+    // Same trick for FlowLayoutPanel - used for the mod card host so the cards repaint smoothly
     // during AutoScroll. Same WS_EX_COMPOSITED reasoning: skip it.
     internal sealed class BufferedFlowPanel : FlowLayoutPanel
     {
@@ -6900,7 +6909,7 @@ namespace CdJsonModManager
         }
     }
 
-    // Fully custom checkbox built on Control, NOT CheckBox — the CheckBox base class still drives
+    // Fully custom checkbox built on Control, NOT CheckBox - the CheckBox base class still drives
     // some native painting through the Windows comctl32 button class even with UserPaint set, which
     // is what was leaving the checkbox looking unchanged regardless of our OnPaint colour tweaks.
     internal sealed class FlatCheck : Control
@@ -7006,9 +7015,9 @@ namespace CdJsonModManager
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            // Background — the whole control area, including the strip-right and the page-border line.
+            // Background - the whole control area, including the strip-right and the page-border line.
             using (var b = new SolidBrush(StripColor)) e.Graphics.FillRectangle(b, ClientRectangle);
-            // Tabs — fire DrawItem for each so existing handlers render the buttons.
+            // Tabs - fire DrawItem for each so existing handlers render the buttons.
             for (int i = 0; i < TabCount; i++)
             {
                 var rect = GetTabRect(i);
@@ -7085,10 +7094,8 @@ namespace CdJsonModManager
                 g.FillPath(brush, path);
                 g.DrawPath(pen, path);
             }
-            var ts = TextRenderer.MeasureText(g, Text ?? "", Font);
-            var x = (Width - ts.Width) / 2;
-            var y = (Height - ts.Height) / 2;
-            TextRenderer.DrawText(g, Text ?? "", Font, new Point(x, y), fg, TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(g, Text ?? "", Font, rect, fg,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
         }
 
         private static Color Lighten(Color c, float amt)
@@ -7194,7 +7201,7 @@ namespace CdJsonModManager
     {
         public Theme SwatchTheme { get; private set; }
         public bool IsActive { get; set; }
-        // When true the swatch renders as a dashed-border placeholder with a centred "+" — used for the
+        // When true the swatch renders as a dashed-border placeholder with a centred "+" - used for the
         // unconfigured Custom theme slot, so it reads as "click to choose" rather than as a real colour.
         public bool IsEmptyPlaceholder { get; set; }
 
@@ -7296,7 +7303,7 @@ namespace CdJsonModManager
             DoubleBuffered = true;
             labelText = label;
 
-            // Badge is the only child control — everything else is painted in OnPaint so the dot
+            // Badge is the only child control - everything else is painted in OnPaint so the dot
             // and label always sit on the row's exact vertical centre, regardless of font metrics.
             badgeControl = new BadgePill
             {
@@ -7336,7 +7343,7 @@ namespace CdJsonModManager
             using (var b = new SolidBrush(dotColor))
                 g.FillEllipse(b, dotX + 1, dotY + 1, dotSize - 2, dotSize - 2);
 
-            // Label — painted at the row's exact vertical centre so it always lines up with the dot.
+            // Label - painted at the row's exact vertical centre so it always lines up with the dot.
             int textLeft = dotX + dotSize + 8;
             int textRight = badgeControl.Left - 6;
             var textRect = new Rectangle(textLeft, 0, Math.Max(20, textRight - textLeft), Height);
@@ -7685,7 +7692,7 @@ namespace CdJsonModManager
                 if (!string.IsNullOrWhiteSpace(entry)) labelParts.Add(entry);
                 if (!string.IsNullOrWhiteSpace(field)) labelParts.Add(field);
                 if (!string.IsNullOrWhiteSpace(op)) labelParts.Add(op + " " + newValue);
-                var label = labelParts.Count > 0 ? string.Join(" · ", labelParts.ToArray()) : "Field intent";
+                var label = labelParts.Count > 0 ? string.Join(" - ", labelParts.ToArray()) : "Field intent";
 
                 mod.Changes.Add(new PatchChange
                 {
@@ -7700,7 +7707,7 @@ namespace CdJsonModManager
                     EntryKey = key,
                     Operation = op,
                     NewValue = newValue,
-                    TargetDisplay = System.IO.Path.GetFileName(gameFile) + " · " + field + (string.IsNullOrWhiteSpace(newValue) ? "" : " → " + newValue)
+                    TargetDisplay = System.IO.Path.GetFileName(gameFile) + " - " + field + (string.IsNullOrWhiteSpace(newValue) ? "" : " -> " + newValue)
                 });
             }
         }
@@ -7768,11 +7775,11 @@ namespace CdJsonModManager
         // Produces a valid LZ4 block per the Block Format spec: the entire
         // input is emitted as one literal-only sequence (one token byte +
         // optional extra-length bytes + literal bytes; no match section).
-        // The existing Lz4BlockDecompress accepts this — when the decoder
+        // The existing Lz4BlockDecompress accepts this - when the decoder
         // exhausts input after consuming literals it stops cleanly.
         //
         // Cost: ~3-bytes-per-65KB overhead vs the input size. We pay that
-        // overhead for simplicity — implementing a real LZ4 matcher buys
+        // overhead for simplicity - implementing a real LZ4 matcher buys
         // smaller output but matches our constraints already (we append
         // to .paz, so file growth doesn't shift any other entries).
         // ============================================================
@@ -7792,7 +7799,7 @@ namespace CdJsonModManager
             }
             else
             {
-                output.Add(0xF0); // literal-length code = 15 → read extra bytes
+                output.Add(0xF0); // literal-length code = 15 -> read extra bytes
                 int remaining = len - 15;
                 while (remaining >= 255)
                 {
@@ -7907,7 +7914,7 @@ namespace CdJsonModManager
         }
 
         // ============================================================
-        // 32-bit hash candidates — diagnostic harness.
+        // 32-bit hash candidates - diagnostic harness.
         // We don't yet know which algorithm Crimson Desert uses for the
         // 4-byte field at PAMT offset 16 + i*12 + 0. The diagnostic
         // computes all common 32-bit hashes over the paz file (full + a
@@ -7921,7 +7928,7 @@ namespace CdJsonModManager
         public static uint[] PublicCrcTable(uint poly) { return BuildCrcTable(poly); }
 
         // ============================================================
-        // Bob Jenkins' lookup3 / hashlittle — used by Pearl Abyss engine.
+        // Bob Jenkins' lookup3 / hashlittle - used by Pearl Abyss engine.
         // Reference: http://burtleburtle.net/bob/c/lookup3.c
         // Returns just the primary 32-bit hash 'c'.
         // ============================================================
@@ -7985,8 +7992,7 @@ namespace CdJsonModManager
 
         // ============================================================
         // Pearl Abyss checksum (used by Crimson Desert).
-        // Reverse-engineered from JMM (CD JSON Mod Manager V8 BETA),
-        // class CDModManager.PaChecksum.
+        // Pearl Abyss archive checksum routine used for PAZ/PAMT/PAPGT integrity fields.
         //
         // Variant of Bob Jenkins lookup3 with a custom init and a
         // custom finalisation that mixes Rotl + Rotr.
@@ -7996,13 +8002,13 @@ namespace CdJsonModManager
         //   final: 8-step custom mix (see code below).
         //
         // Used to compute:
-        //   • per-paz Crc       — PaChecksum(<entire .paz file>),
+        //   * per-paz Crc       - PaChecksum(<entire .paz file>),
         //                         written into 0.pamt at row+4 of each paz
-        //   • PAMT HeaderCrc    — PaChecksum(pamt[12..end]),
+        //   * PAMT HeaderCrc    - PaChecksum(pamt[12..end]),
         //                         written at 0.pamt[0..3]
-        //   • papgt HeaderCrc   — PaChecksum(papgt_body[entries+stringtable]),
+        //   * papgt HeaderCrc   - PaChecksum(papgt_body[entries+stringtable]),
         //                         written at meta/0.papgt[4..7]
-        //   • papgt PamtCrc[i]  — copy of the corresponding archive's PAMT HeaderCrc
+        //   * papgt PamtCrc[i]  - copy of the corresponding archive's PAMT HeaderCrc
         // ============================================================
         public const uint PA_MAGIC = 558228019u;
 
@@ -8038,7 +8044,7 @@ namespace CdJsonModManager
             if (rem >= 3) b += (uint)data[p + 2] << 16;
             if (rem >= 2) b += (uint)data[p + 1] << 8;
             if (rem >= 1) b += (uint)data[p];
-            // Custom finalisation — note the Rotr at steps 3 and 8.
+            // Custom finalisation - note the Rotr at steps 3 and 8.
             uint t1 = (a ^ c) - Rotl(a, 14);
             uint t2 = (b ^ t1) - Rotl(t1, 11);
             uint t3 = (t2 ^ a) - Rotr(t2, 7);
@@ -8051,7 +8057,7 @@ namespace CdJsonModManager
 
         private static uint Rotr(uint x, int k) { return (x >> k) | (x << (32 - k)); }
 
-        // Full-file PaChecksum — loads the whole file (up to ~2 GB) and hashes it in one pass.
+        // Full-file PaChecksum - loads the whole file (up to ~2 GB) and hashes it in one pass.
         public static uint PaChecksumFile(string path)
         {
             var data = File.ReadAllBytes(path);
@@ -9461,7 +9467,7 @@ namespace CdJsonModManager
 
             var hint = new Label
             {
-                Text = "Get your key from nexusmods.com → Account Settings → API Access. You only need to do this once.",
+                Text = "Get your key from nexusmods.com -> Account Settings -> API Access. You only need to do this once.",
                 Dock = DockStyle.Top,
                 Height = 36,
                 Font = new Font("Consolas", 9),
@@ -9774,7 +9780,7 @@ namespace CdJsonModManager
             var body = new StringBuilder();
             body.AppendLine("## What happened?");
             body.AppendLine();
-            body.AppendLine(isCrash ? "_The app crashed with the error below._" : "_<describe the bug — what did you do, what did you expect, what happened instead?>_");
+            body.AppendLine(isCrash ? "_The app crashed with the error below._" : "_<describe the bug - what did you do, what did you expect, what happened instead?>_");
             body.AppendLine();
             body.AppendLine("## Steps to reproduce");
             body.AppendLine();
@@ -9866,7 +9872,7 @@ namespace CdJsonModManager
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Both,
                 WordWrap = false,
-                MaxLength = 1024 * 1024, // bump well past the 32 KB default — log + state can easily exceed it
+                MaxLength = 1024 * 1024, // bump well past the 32 KB default - log + state can easily exceed it
                 BackColor = Color.FromArgb(9, 10, 8),
                 ForeColor = Color.FromArgb(199, 187, 155),
                 BorderStyle = BorderStyle.FixedSingle,
@@ -10008,3 +10014,6 @@ namespace CdJsonModManager
         }
     }
 }
+
+
+
