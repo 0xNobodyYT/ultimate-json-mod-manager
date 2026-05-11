@@ -68,7 +68,7 @@ After a Crimson Desert update, users should verify Steam files or otherwise rest
 4. Create a clean release ZIP containing only `Ultimate JSON Mod Manager.exe`.
 5. Commit source/docs changes.
 6. Push `main`.
-7. Tag the version, for example `v1.3.5`.
+7. Tag the version, for example `vX.Y.Z`.
 8. Publish a GitHub release and attach the clean ZIP.
 9. Upload the same ZIP to the Nexus files page.
 
