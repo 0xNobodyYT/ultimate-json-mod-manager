@@ -2596,8 +2596,8 @@ namespace CdJsonModManager
             {
                 try
                 {
-                    if (IsRawOverlayDirectory(dir)) mods.Add(JsonMod.LoadOverlayDirectory(dir, json, "RAW"));
-                    else if (IsBrowserModDirectory(dir)) mods.Add(JsonMod.LoadOverlayDirectory(dir, json, "BROWSER"));
+                    if (IsBrowserModDirectory(dir)) mods.Add(JsonMod.LoadOverlayDirectory(dir, json, "BROWSER"));
+                    else if (IsRawOverlayDirectory(dir)) mods.Add(JsonMod.LoadOverlayDirectory(dir, json, "RAW"));
                 }
                 catch (Exception ex)
                 {
@@ -3869,17 +3869,17 @@ namespace CdJsonModManager
                 try
                 {
                     if (File.Exists(package) && IsSupportedArchiveExtension(Path.GetExtension(package))) continue;
-                    if (Directory.Exists(package) && IsRawOverlayDirectory(package))
-                    {
-                        CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
-                        imported++;
-                        Log("Imported RAW overlay mod: " + Path.GetFileName(package));
-                    }
-                    else if (Directory.Exists(package) && IsBrowserModDirectory(package))
+                    if (Directory.Exists(package) && IsBrowserModDirectory(package))
                     {
                         CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
                         imported++;
                         Log("Imported Browser/UI mod: " + Path.GetFileName(package));
+                    }
+                    else if (Directory.Exists(package) && IsRawOverlayDirectory(package))
+                    {
+                        CopyDirectory(package, Path.Combine(modsDir, SafePackageName(Path.GetFileName(package))));
+                        imported++;
+                        Log("Imported RAW overlay mod: " + Path.GetFileName(package));
                     }
                     else
                     {
@@ -3929,15 +3929,24 @@ namespace CdJsonModManager
         {
             if (!Directory.Exists(extractRoot)) return;
 
-            foreach (var dir in Directory.GetDirectories(extractRoot, "*", SearchOption.AllDirectories)
-                .OrderBy(d => d.Length))
+            AddPackageCandidateTree(extractRoot, packageCandidates);
+        }
+
+        private bool AddPackageCandidateTree(string dir, List<string> packageCandidates)
+        {
+            if (!Directory.Exists(dir)) return false;
+            if (IsRawOverlayDirectory(dir) || IsBrowserModDirectory(dir))
             {
-                if (packageCandidates.Any(existing => string.Equals(existing, dir, StringComparison.OrdinalIgnoreCase))) continue;
-                if (IsRawOverlayDirectory(dir) || IsBrowserModDirectory(dir))
-                {
+                if (!packageCandidates.Any(existing => string.Equals(existing, dir, StringComparison.OrdinalIgnoreCase)))
                     packageCandidates.Add(dir);
-                }
+                return true;
             }
+
+            foreach (var child in Directory.GetDirectories(dir).OrderBy(Path.GetFileName))
+            {
+                AddPackageCandidateTree(child, packageCandidates);
+            }
+            return false;
         }
 
         private static string SafePackageName(string name)
@@ -4093,6 +4102,8 @@ namespace CdJsonModManager
         {
             if (IsRawOverlayPayloadDirectory(path)) return true;
             if (IsLooseRawOverlayRoot(path)) return true;
+            if (Directory.GetDirectories(path).Any(IsRawOverlayPayloadDirectory)) return true;
+            if (IsManifestOverlayDirectory(path)) return true;
             if (!File.Exists(Path.Combine(path, "modinfo.json"))) return false;
             if (Directory.GetDirectories(path).Any(IsRawOverlayPayloadDirectory)) return true;
 
@@ -4115,6 +4126,23 @@ namespace CdJsonModManager
             catch { }
 
             return false;
+        }
+
+        private bool IsManifestOverlayDirectory(string path)
+        {
+            var manifestPath = Path.Combine(path, "manifest.json");
+            if (!File.Exists(manifestPath)) return false;
+            try
+            {
+                var root = json.DeserializeObject(File.ReadAllText(manifestPath, Encoding.UTF8)) as Dictionary<string, object>;
+                if (root == null) return false;
+                var filesDir = Convert.ToString(root.ContainsKey("files_dir") ? root["files_dir"] : "files");
+                if (string.IsNullOrWhiteSpace(filesDir)) filesDir = "files";
+                var filesRoot = Path.Combine(path, filesDir);
+                if (Directory.Exists(filesRoot) && Directory.GetDirectories(filesRoot).Any(IsRawOverlayPayloadDirectory)) return true;
+                return Directory.GetDirectories(path).Any(IsRawOverlayPayloadDirectory);
+            }
+            catch { return false; }
         }
 
         private static bool IsRawOverlayPayloadDirectory(string path)
@@ -7713,6 +7741,7 @@ namespace CdJsonModManager
             Dictionary<string, object> info = null;
             string metadata = formatTag == "BROWSER" ? System.IO.Path.Combine(path, "manifest.json") : System.IO.Path.Combine(path, "modinfo.json");
             if (formatTag == "RAW" && !File.Exists(metadata)) metadata = System.IO.Path.Combine(path, "mod.json");
+            if (formatTag == "RAW" && !File.Exists(metadata)) metadata = System.IO.Path.Combine(path, "manifest.json");
             if (File.Exists(metadata)) info = json.DeserializeObject(File.ReadAllText(metadata, Encoding.UTF8)) as Dictionary<string, object>;
             if (info != null && info.ContainsKey("modinfo") && info["modinfo"] is Dictionary<string, object> nestedInfo) info = nestedInfo;
             var mod = new JsonMod
