@@ -11,13 +11,16 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using System.Xml;
+using System.Xml.Linq;
+using System.Xml.XPath;
 
 [assembly: AssemblyTitle("Ultimate JSON Mod Manager")]
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.3.2.0")]
-[assembly: AssemblyVersion("1.3.2.0")]
+[assembly: AssemblyFileVersion("1.3.3.0")]
+[assembly: AssemblyVersion("1.3.3.0")]
 
 namespace CdJsonModManager
 {
@@ -28,7 +31,7 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.3.2";
+        public const string AppVersion = "1.3.3";
         public const string NexusGameDomain = "crimsondesert";
         public const string NexusSsoApplication = "0xnobody-ultimatejsonmodmanager"; // app slug used for SSO handshake — assigned by Nexus 2026-05-10
         public const string NxmScheme = "nxm";
@@ -4628,9 +4631,18 @@ namespace CdJsonModManager
             var patchText = File.ReadAllText(sourcePath, Encoding.UTF8);
             if (string.Equals(ext, ".merge", StringComparison.OrdinalIgnoreCase))
             {
+                if (relativePath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)
+                    || relativePath.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+                {
+                    var mergedXml = ApplyXmlMergeDocument(original, patchText, log, relativePath);
+                    if (mergedXml != null) return mergedXml;
+                }
                 var merged = text.TrimEnd() + "\r\n\r\n" + patchText.Trim() + "\r\n";
                 return new UTF8Encoding(false).GetBytes(merged);
             }
+
+            var patchedXml = ApplyXmlPatchDocument(original, patchText, log, relativePath);
+            if (patchedXml != null) return patchedXml;
 
             var patched = ApplySimpleXmlPatch(text, patchText, log, relativePath);
             return new UTF8Encoding(false).GetBytes(patched);
@@ -4641,6 +4653,471 @@ namespace CdJsonModManager
             if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
                 return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
             return Encoding.UTF8.GetString(bytes);
+        }
+
+        private sealed class XmlDocContext
+        {
+            public XDocument Document;
+            public Encoding Encoding;
+            public bool Wrapped;
+        }
+
+        private static XmlDocContext ParseGameXml(byte[] bytes, Action<string> log, string relativePath)
+        {
+            try
+            {
+                Encoding encoding;
+                string text;
+                using (var ms = new MemoryStream(bytes))
+                using (var reader = new StreamReader(ms, true))
+                {
+                    text = reader.ReadToEnd();
+                    encoding = reader.CurrentEncoding ?? new UTF8Encoding(false);
+                }
+
+                try
+                {
+                    return new XmlDocContext
+                    {
+                        Document = XDocument.Parse(text, LoadOptions.PreserveWhitespace),
+                        Encoding = encoding,
+                        Wrapped = false
+                    };
+                }
+                catch (XmlException)
+                {
+                    var wrapped = "<__cdmm_root__>" + text + "</__cdmm_root__>";
+                    return new XmlDocContext
+                    {
+                        Document = XDocument.Parse(wrapped, LoadOptions.PreserveWhitespace),
+                        Encoding = encoding,
+                        Wrapped = true
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                if (log != null) log("XML parse failed for " + relativePath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        private static byte[] SerializeGameXml(XmlDocContext ctx)
+        {
+            if (ctx == null || ctx.Document == null) return null;
+            var encoding = ctx.Encoding ?? new UTF8Encoding(false);
+            var settings = new XmlWriterSettings
+            {
+                Encoding = encoding,
+                OmitXmlDeclaration = ctx.Document.Declaration == null,
+                Indent = false,
+                NewLineHandling = NewLineHandling.None
+            };
+
+            if (ctx.Wrapped && ctx.Document.Root != null)
+            {
+                var sb = new StringBuilder();
+                foreach (var node in ctx.Document.Root.Nodes())
+                {
+                    sb.Append(node.ToString(SaveOptions.DisableFormatting));
+                }
+                return encoding.GetBytes(sb.ToString());
+            }
+
+            using (var ms = new MemoryStream())
+            {
+                using (var writer = XmlWriter.Create(ms, settings))
+                {
+                    ctx.Document.WriteTo(writer);
+                }
+                return ms.ToArray();
+            }
+        }
+
+        private sealed class XmlPatchOperation
+        {
+            public string Op;
+            public string XPath;
+            public string Value;
+            public string Attribute;
+            public Dictionary<string, string> Attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static byte[] ApplyXmlPatchDocument(byte[] originalBytes, string patchText, Action<string> log, string relativePath)
+        {
+            var ctx = ParseGameXml(originalBytes, log, relativePath);
+            if (ctx == null) return null;
+
+            List<XmlPatchOperation> ops;
+            string error;
+            if (!TryLoadXmlPatchOperations(patchText, out ops, out error))
+            {
+                if (log != null) log("XML patch parse failed for " + relativePath + ": " + error);
+                return null;
+            }
+
+            var applied = 0;
+            foreach (var op in ops)
+            {
+                try
+                {
+                    var matches = ctx.Document.XPathSelectElements(op.XPath).ToList();
+                    if (matches.Count == 0)
+                    {
+                        if (log != null) log("XML patch selector matched no elements in " + relativePath + ": " + op.XPath);
+                        continue;
+                    }
+
+                    var lower = (op.Op ?? "").ToLowerInvariant();
+                    foreach (var el in matches.ToList())
+                    {
+                        if (lower == "set-attr")
+                        {
+                            if (!string.IsNullOrWhiteSpace(op.Attribute))
+                                el.SetAttributeValue(op.Attribute, op.Value ?? "");
+                            foreach (var attr in op.Attributes)
+                                el.SetAttributeValue(attr.Key, attr.Value ?? "");
+                        }
+                        else if (lower == "remove-attr")
+                        {
+                            if (!string.IsNullOrWhiteSpace(op.Attribute))
+                                el.SetAttributeValue(op.Attribute, null);
+                            foreach (var attr in op.Attributes.Keys.ToList())
+                                el.SetAttributeValue(attr, null);
+                        }
+                        else if (lower == "remove")
+                        {
+                            el.Remove();
+                        }
+                        else if (lower == "replace")
+                        {
+                            var fragment = TryParseXmlFragment(op.Value);
+                            if (fragment != null) el.ReplaceWith(fragment);
+                            else el.Value = op.Value ?? "";
+                        }
+                        else if (lower == "add")
+                        {
+                            var fragment = TryParseXmlFragment(op.Value);
+                            if (fragment != null) el.Add(fragment);
+                            else el.Add(new XText(op.Value ?? ""));
+                        }
+                        else if (lower == "add-before")
+                        {
+                            var fragment = TryParseXmlFragment(op.Value);
+                            if (fragment != null) el.AddBeforeSelf(fragment);
+                            else el.AddBeforeSelf(new XText(op.Value ?? ""));
+                        }
+                        else if (lower == "add-after")
+                        {
+                            var fragment = TryParseXmlFragment(op.Value);
+                            if (fragment != null) el.AddAfterSelf(fragment);
+                            else el.AddAfterSelf(new XText(op.Value ?? ""));
+                        }
+                    }
+                    applied++;
+                }
+                catch (Exception ex)
+                {
+                    if (log != null) log("XML patch failed for " + relativePath + ": " + ex.Message);
+                }
+            }
+            if (log != null) log("XML patch materialized " + applied + " operation(s) for " + relativePath + ".");
+            return SerializeGameXml(ctx);
+        }
+
+        private static bool TryLoadXmlPatchOperations(string patchText, out List<XmlPatchOperation> ops, out string error)
+        {
+            ops = new List<XmlPatchOperation>();
+            error = "";
+            try
+            {
+                var root = XDocument.Parse(patchText, LoadOptions.PreserveWhitespace).Root;
+                if (root == null)
+                {
+                    error = "empty patch";
+                    return false;
+                }
+
+                foreach (var node in root.Elements())
+                {
+                    var name = node.Name.LocalName.ToLowerInvariant();
+                    var op = new XmlPatchOperation();
+                    var at = AttributeValue(node, "at");
+                    var target = AttributeValue(node, "target");
+                    var find = AttributeValue(node, "find");
+                    var key = AttributeValue(node, "key");
+                    var into = AttributeValue(node, "into");
+
+                    if (name == "set" || name == "set-attr")
+                    {
+                        op.Op = "set-attr";
+                        op.Attribute = AttributeValue(node, "attr") ?? AttributeValue(node, "attribute");
+                        op.Value = AttributeValue(node, "value");
+                        foreach (var attr in node.Attributes())
+                        {
+                            var local = attr.Name.LocalName;
+                            if (local == "at" || local == "target" || local == "find" || local == "key" || local == "into" || local == "attr" || local == "attribute" || local == "value") continue;
+                            if (local.StartsWith("match-", StringComparison.OrdinalIgnoreCase)) continue;
+                            op.Attributes[local] = attr.Value;
+                        }
+                    }
+                    else if (name == "unset" || name == "remove-attr")
+                    {
+                        op.Op = "remove-attr";
+                        op.Attribute = AttributeValue(node, "attr") ?? AttributeValue(node, "attribute");
+                    }
+                    else if (name == "remove" || name == "delete")
+                    {
+                        op.Op = "remove";
+                    }
+                    else if (name == "replace")
+                    {
+                        op.Op = "replace";
+                        op.Value = InnerXml(node);
+                        foreach (var attr in node.Attributes())
+                        {
+                            var local = attr.Name.LocalName;
+                            if (local == "at" || local == "target" || local == "find" || local == "key") continue;
+                            op.Attributes[local] = attr.Value;
+                        }
+                        if (op.Attributes.Count > 0 && string.IsNullOrWhiteSpace(op.Value))
+                        {
+                            op.Op = "set-attr";
+                        }
+                    }
+                    else if (name == "add" || name == "insert")
+                    {
+                        op.Op = "add";
+                        op.Value = InnerXml(node);
+                        if (!string.IsNullOrWhiteSpace(into)) target = "//" + into;
+                    }
+                    else if (name == "add-before" || name == "insert-before")
+                    {
+                        op.Op = "add-before";
+                        op.Value = InnerXml(node);
+                    }
+                    else if (name == "add-after" || name == "insert-after")
+                    {
+                        op.Op = "add-after";
+                        op.Value = InnerXml(node);
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    op.XPath = ResolvePatchTarget(at ?? target, find, key, node);
+                    if (string.IsNullOrWhiteSpace(op.XPath)) continue;
+                    ops.Add(op);
+                }
+                if (ops.Count == 0)
+                {
+                    error = "no supported operations";
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private static string ResolvePatchTarget(string target, string find, string key, XElement node)
+        {
+            if (!string.IsNullOrWhiteSpace(target))
+            {
+                target = target.Trim();
+                if (target.StartsWith("#", StringComparison.Ordinal)) return "//*[@id=" + XPathQuote(target.Substring(1)) + "]";
+                if (target.StartsWith(".", StringComparison.Ordinal)) return "//*[contains(concat(' ', normalize-space(@class), ' '), " + XPathQuote(" " + target.Substring(1) + " ") + ")]";
+                return target;
+            }
+            if (!string.IsNullOrWhiteSpace(find))
+            {
+                var filters = new List<string>();
+                if (!string.IsNullOrWhiteSpace(key)) filters.Add("@key=" + XPathQuote(key));
+                foreach (var attr in node.Attributes().Where(a => a.Name.LocalName.StartsWith("match-", StringComparison.OrdinalIgnoreCase)))
+                {
+                    filters.Add("@" + attr.Name.LocalName.Substring(6) + "=" + XPathQuote(attr.Value));
+                }
+                return "//" + find + (filters.Count > 0 ? "[" + string.Join(" and ", filters.ToArray()) + "]" : "");
+            }
+            return "";
+        }
+
+        private static string XPathQuote(string value)
+        {
+            if (!value.Contains("'")) return "'" + value + "'";
+            if (!value.Contains("\"")) return "\"" + value + "\"";
+            return "concat('" + value.Replace("'", "',\"'\",'") + "')";
+        }
+
+        private static string AttributeValue(XElement el, string name)
+        {
+            var attr = el.Attribute(name);
+            return attr != null ? attr.Value : null;
+        }
+
+        private static string InnerXml(XElement el)
+        {
+            return string.Concat(el.Nodes().Select(n => n.ToString(SaveOptions.DisableFormatting))).Trim();
+        }
+
+        private static XElement TryParseXmlFragment(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || !value.TrimStart().StartsWith("<", StringComparison.Ordinal)) return null;
+            try { return XElement.Parse(value, LoadOptions.PreserveWhitespace); }
+            catch { return null; }
+        }
+
+        private static byte[] ApplyXmlMergeDocument(byte[] originalBytes, string mergeText, Action<string> log, string relativePath)
+        {
+            var ctx = ParseGameXml(originalBytes, log, relativePath);
+            if (ctx == null) return null;
+
+            try
+            {
+                XDocument mergeDoc;
+                var wrappedMerge = false;
+                try
+                {
+                    mergeDoc = XDocument.Parse(mergeText, LoadOptions.PreserveWhitespace);
+                }
+                catch (XmlException)
+                {
+                    mergeDoc = XDocument.Parse("<__cdmm_root__>" + mergeText + "</__cdmm_root__>", LoadOptions.PreserveWhitespace);
+                    wrappedMerge = true;
+                }
+
+                var root = mergeDoc.Root;
+                if (root == null) return null;
+                var mergeNodes = (root.Name.LocalName == "xml-merge" || wrappedMerge) ? root.Elements() : new[] { root };
+                var merged = 0;
+                var added = 0;
+                var deleted = 0;
+                foreach (var el in mergeNodes)
+                {
+                    if (el.HasElements)
+                    {
+                        var section = ctx.Document.Descendants(el.Name.LocalName).FirstOrDefault();
+                        if (section != null)
+                        {
+                            foreach (var child in el.Elements())
+                            {
+                                MergeElementLikeJmm(new XElement(child), section, ctx.Document, ref merged, ref added, ref deleted);
+                            }
+                            continue;
+                        }
+                    }
+                    MergeElementLikeJmm(new XElement(el), null, ctx.Document, ref merged, ref added, ref deleted);
+                }
+                if (log != null) log("XML merge materialized for " + relativePath + ": " + merged + " merged, " + added + " added, " + deleted + " deleted.");
+                return SerializeGameXml(ctx);
+            }
+            catch (Exception ex)
+            {
+                if (log != null) log("XML merge failed for " + relativePath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        private static void MergeElementLikeJmm(XElement mergeEl, XElement parentHint, XDocument doc, ref int totalMerged, ref int totalAdded, ref int totalDeleted)
+        {
+            var localName = mergeEl.Name.LocalName;
+            string keyAttr;
+            string keyValue;
+            FindMergeIdentity(mergeEl, parentHint, doc, localName, out keyAttr, out keyValue);
+            var deleteAttr = mergeEl.Attribute("__delete");
+            var shouldDelete = deleteAttr != null && string.Equals(deleteAttr.Value, "true", StringComparison.OrdinalIgnoreCase);
+
+            if (keyAttr == null || keyValue == null)
+            {
+                if (shouldDelete) return;
+                var parent = parentHint ?? doc.Root;
+                if (parent != null) parent.Add(mergeEl);
+                totalAdded++;
+                return;
+            }
+
+            var search = parentHint != null ? parentHint.Elements(localName) : doc.Descendants(localName);
+            var existing = search.FirstOrDefault(e =>
+            {
+                var attr = e.Attribute(keyAttr);
+                return attr != null && attr.Value == keyValue;
+            });
+
+            if (shouldDelete)
+            {
+                if (existing != null)
+                {
+                    existing.Remove();
+                    totalDeleted++;
+                }
+                return;
+            }
+
+            if (existing != null)
+            {
+                foreach (var attr in mergeEl.Attributes())
+                {
+                    var local = attr.Name.LocalName;
+                    if (local == keyAttr || local.StartsWith("__", StringComparison.Ordinal)) continue;
+                    existing.SetAttributeValue(attr.Name, attr.Value);
+                }
+                totalMerged++;
+                return;
+            }
+
+            var copy = new XElement(mergeEl);
+            var del = copy.Attribute("__delete");
+            if (del != null) del.Remove();
+            var insertParent = parentHint;
+            if (insertParent == null)
+            {
+                var sameKind = doc.Descendants(localName).FirstOrDefault();
+                insertParent = sameKind != null ? sameKind.Parent : doc.Root;
+            }
+            if (insertParent != null) insertParent.Add(copy);
+            totalAdded++;
+        }
+
+        private static void FindMergeIdentity(XElement mergeEl, XElement parentHint, XDocument doc, string elName, out string keyAttr, out string keyValue)
+        {
+            keyAttr = null;
+            keyValue = null;
+            var priority = new[] { "Key", "Name", "Id", "key", "name", "id" };
+            foreach (var candidate in priority)
+            {
+                var attr = mergeEl.Attribute(candidate);
+                if (attr != null)
+                {
+                    keyAttr = candidate;
+                    keyValue = attr.Value;
+                    return;
+                }
+            }
+            foreach (var attr in mergeEl.Attributes())
+            {
+                var local = attr.Name.LocalName;
+                if (!local.StartsWith("__", StringComparison.Ordinal) && (local.EndsWith("_key", StringComparison.OrdinalIgnoreCase) || local.EndsWith("_id", StringComparison.OrdinalIgnoreCase) || local.EndsWith("_name", StringComparison.OrdinalIgnoreCase)))
+                {
+                    keyAttr = local;
+                    keyValue = attr.Value;
+                    return;
+                }
+            }
+            var existing = (parentHint != null ? parentHint.Elements(elName) : doc.Descendants(elName)).FirstOrDefault();
+            if (existing == null) return;
+            foreach (var candidate in priority)
+            {
+                if (existing.Attribute(candidate) != null && mergeEl.Attribute(candidate) != null)
+                {
+                    keyAttr = candidate;
+                    keyValue = mergeEl.Attribute(candidate).Value;
+                    return;
+                }
+            }
         }
 
         private static string ApplySimpleXmlPatch(string original, string patchText, Action<string> log, string relativePath)
