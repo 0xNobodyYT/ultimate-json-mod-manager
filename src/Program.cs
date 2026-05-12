@@ -5014,6 +5014,112 @@ namespace CdJsonModManager
             public uint OriginalSize;
             public uint Offset;
             public uint FileNameOffset;
+            public ushort EntryFlags;
+            public string SourceArchiveGroup;
+        }
+
+        private sealed class OverlayOriginal
+        {
+            public PazEntry Entry;
+            public byte[] Data;
+            public string GroupName;
+        }
+
+        private sealed class OverlayOriginalIndex
+        {
+            private readonly string gameRoot;
+            private readonly string preferredGroupName;
+            private readonly Dictionary<string, PamtParseResult> pamtCache = new Dictionary<string, PamtParseResult>(StringComparer.OrdinalIgnoreCase);
+            private List<string> groupNames;
+
+            public OverlayOriginalIndex(string gameRoot, string preferredGroupName)
+            {
+                this.gameRoot = gameRoot;
+                this.preferredGroupName = preferredGroupName ?? "";
+            }
+
+            public OverlayOriginal Find(string relativePath)
+            {
+                if (string.IsNullOrWhiteSpace(gameRoot) || string.IsNullOrWhiteSpace(relativePath)) return null;
+                if (!string.IsNullOrWhiteSpace(preferredGroupName))
+                {
+                    var found = TryExtractFromGroup(preferredGroupName, relativePath);
+                    if (found != null) return found;
+                }
+
+                foreach (var groupName in GetGroupNames())
+                {
+                    if (string.Equals(groupName, preferredGroupName, StringComparison.OrdinalIgnoreCase)) continue;
+                    var found = TryExtractFromGroup(groupName, relativePath);
+                    if (found != null) return found;
+                }
+                return null;
+            }
+
+            private IEnumerable<string> GetGroupNames()
+            {
+                if (groupNames != null) return groupNames;
+                try
+                {
+                    groupNames = Directory.GetDirectories(gameRoot)
+                        .Select(Path.GetFileName)
+                        .Where(name => Regex.IsMatch(name ?? "", @"^\d{4}$"))
+                        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                }
+                catch
+                {
+                    groupNames = new List<string>();
+                }
+                return groupNames;
+            }
+
+            private PamtParseResult GetPamt(string groupName)
+            {
+                PamtParseResult pamt;
+                if (pamtCache.TryGetValue(groupName, out pamt)) return pamt;
+                try
+                {
+                    var groupDir = Path.Combine(gameRoot, groupName);
+                    var pamtPath = Path.Combine(groupDir, "0.pamt");
+                    if (!File.Exists(pamtPath)) return null;
+                    pamt = ArchiveExtractor.ParsePamtFull(pamtPath, groupDir);
+                    pamtCache[groupName] = pamt;
+                    return pamt;
+                }
+                catch
+                {
+                    pamtCache[groupName] = null;
+                    return null;
+                }
+            }
+
+            private OverlayOriginal TryExtractFromGroup(string groupName, string relativePath)
+            {
+                try
+                {
+                    var pamt = GetPamt(groupName);
+                    if (pamt == null) return null;
+                    var normalized = relativePath.Replace('\\', '/');
+                    var entry = pamt.Entries.FirstOrDefault(e => string.Equals((e.Path ?? "").Replace('\\', '/'), normalized, StringComparison.OrdinalIgnoreCase));
+                    if (entry == null || !File.Exists(entry.PazFile)) return null;
+                    using (var fs = File.OpenRead(entry.PazFile))
+                    {
+                        fs.Seek(entry.Offset, SeekOrigin.Begin);
+                        var blob = new byte[entry.CompSize];
+                        var got = fs.Read(blob, 0, blob.Length);
+                        if (got != blob.Length) return null;
+                        if (entry.EncryptionType == 3) blob = ArchiveExtractor.CryptChaCha20ByFileName(blob, Path.GetFileName(entry.Path));
+                        if (entry.CompressionType == 2) return new OverlayOriginal { Entry = entry, Data = ArchiveExtractor.Lz4BlockDecompressPublic(blob, entry.OrigSize), GroupName = groupName };
+                        if (entry.CompressionType == 0 || entry.CompSize == entry.OrigSize) return new OverlayOriginal { Entry = entry, Data = blob, GroupName = groupName };
+                        return null;
+                    }
+                }
+                catch
+                {
+                    return null;
+                }
+            }
         }
 
         private static void BuildLooseOverlayPackage(string sourceFolder, string targetFolder, string gameRoot, Action<string> log)
@@ -5048,11 +5154,20 @@ namespace CdJsonModManager
 
             Directory.CreateDirectory(targetFolder);
             var paz = new MemoryStream();
+            var originalIndex = new OverlayOriginalIndex(gameRoot, PreferredOverlaySourceGroup(sourceFolder));
             foreach (var file in files)
             {
-                var raw = BuildLooseOverlayFileBytes(sourceFolder, file.SourcePath, file.RelativePath, gameRoot, log);
+                var original = originalIndex.Find(file.RelativePath);
+                var raw = BuildLooseOverlayFileBytes(sourceFolder, file.SourcePath, file.RelativePath, gameRoot, original, log);
                 file.OriginalSize = checked((uint)raw.Length);
                 file.PackedBytes = ArchiveExtractor.Lz4BlockCompress(raw);
+                file.EntryFlags = original != null ? (ushort)(original.Entry.Flags >> 16) : (ushort)0x0002;
+                file.SourceArchiveGroup = original != null ? original.GroupName : PreferredOverlaySourceGroup(sourceFolder);
+                if (((file.EntryFlags >> 4) & 0x0F) == 3)
+                {
+                    file.PackedBytes = ArchiveExtractor.CryptChaCha20ByFileName(file.PackedBytes, file.FileName);
+                    if (log != null) log("Overlay " + file.RelativePath + ": encrypted ChaCha20 using matching game flags 0x" + file.EntryFlags.ToString("X4") + ".");
+                }
                 var aligned = AlignUp((uint)paz.Position, 16);
                 while (paz.Position < aligned) paz.WriteByte(0);
                 file.Offset = checked((uint)paz.Position);
@@ -5074,7 +5189,7 @@ namespace CdJsonModManager
             return relativePath;
         }
 
-        private static byte[] BuildLooseOverlayFileBytes(string sourceFolder, string sourcePath, string relativePath, string gameRoot, Action<string> log)
+        private static byte[] BuildLooseOverlayFileBytes(string sourceFolder, string sourcePath, string relativePath, string gameRoot, OverlayOriginal original, Action<string> log)
         {
             var ext = Path.GetExtension(sourcePath);
             if (!string.Equals(ext, ".merge", StringComparison.OrdinalIgnoreCase)
@@ -5083,28 +5198,27 @@ namespace CdJsonModManager
                 return File.ReadAllBytes(sourcePath);
             }
 
-            var original = ExtractOverlayOriginal(gameRoot, Path.GetFileName(sourceFolder), relativePath);
             if (original == null)
             {
                 if (log != null) log("Overlay patch source not found in game archives for " + relativePath + "; packing patch payload only.");
                 return File.ReadAllBytes(sourcePath);
             }
 
-            var text = DecodeText(original);
+            var text = DecodeText(original.Data);
             var patchText = File.ReadAllText(sourcePath, Encoding.UTF8);
             if (string.Equals(ext, ".merge", StringComparison.OrdinalIgnoreCase))
             {
                 if (relativePath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)
                     || relativePath.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
                 {
-                    var mergedXml = ApplyXmlMergeDocument(original, patchText, log, relativePath);
+                    var mergedXml = ApplyXmlMergeDocument(original.Data, patchText, log, relativePath);
                     if (mergedXml != null) return mergedXml;
                 }
                 var merged = text.TrimEnd() + "\r\n\r\n" + patchText.Trim() + "\r\n";
                 return new UTF8Encoding(false).GetBytes(merged);
             }
 
-            var patchedXml = ApplyXmlPatchDocument(original, patchText, log, relativePath);
+            var patchedXml = ApplyXmlPatchDocument(original.Data, patchText, log, relativePath);
             if (patchedXml != null) return patchedXml;
 
             var patched = ApplySimpleXmlPatch(text, patchText, log, relativePath);
@@ -5633,9 +5747,38 @@ namespace CdJsonModManager
             return result;
         }
 
-        private static byte[] ExtractOverlayOriginal(string gameRoot, string groupName, string relativePath)
+        private static string PreferredOverlaySourceGroup(string sourceFolder)
         {
-            if (string.IsNullOrWhiteSpace(gameRoot) || string.IsNullOrWhiteSpace(groupName)) return null;
+            var name = Path.GetFileName(sourceFolder);
+            return Regex.IsMatch(name ?? "", @"^\d{4}$") ? name : "";
+        }
+
+        private static OverlayOriginal FindOverlayOriginal(string gameRoot, string preferredGroupName, string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(gameRoot) || string.IsNullOrWhiteSpace(relativePath)) return null;
+            if (!string.IsNullOrWhiteSpace(preferredGroupName))
+            {
+                var found = TryExtractOverlayOriginalFromGroup(gameRoot, preferredGroupName, relativePath);
+                if (found != null) return found;
+            }
+
+            try
+            {
+                foreach (var groupDir in Directory.GetDirectories(gameRoot)
+                    .Where(dir => Regex.IsMatch(Path.GetFileName(dir), @"^\d{4}$"))
+                    .OrderBy(Path.GetFileName))
+                {
+                    var found = TryExtractOverlayOriginalFromGroup(gameRoot, Path.GetFileName(groupDir), relativePath);
+                    if (found != null) return found;
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        private static OverlayOriginal TryExtractOverlayOriginalFromGroup(string gameRoot, string groupName, string relativePath)
+        {
             try
             {
                 var groupDir = Path.Combine(gameRoot, groupName);
@@ -5651,8 +5794,9 @@ namespace CdJsonModManager
                     var blob = new byte[entry.CompSize];
                     var got = fs.Read(blob, 0, blob.Length);
                     if (got != blob.Length) return null;
-                    if (entry.CompressionType == 2) return ArchiveExtractor.Lz4BlockDecompressPublic(blob, entry.OrigSize);
-                    if (entry.CompressionType == 0 || entry.CompSize == entry.OrigSize) return blob;
+                    if (entry.EncryptionType == 3) blob = ArchiveExtractor.CryptChaCha20ByFileName(blob, Path.GetFileName(entry.Path));
+                    if (entry.CompressionType == 2) return new OverlayOriginal { Entry = entry, Data = ArchiveExtractor.Lz4BlockDecompressPublic(blob, entry.OrigSize), GroupName = groupName };
+                    if (entry.CompressionType == 0 || entry.CompSize == entry.OrigSize) return new OverlayOriginal { Entry = entry, Data = blob, GroupName = groupName };
                     return null;
                 }
             }
@@ -5746,7 +5890,7 @@ namespace CdJsonModManager
                 bw.Write(checked((uint)file.PackedBytes.Length));
                 bw.Write(file.OriginalSize);
                 bw.Write((ushort)0);
-                bw.Write(CompressionLz4);
+                bw.Write(file.EntryFlags == 0 ? CompressionLz4 : file.EntryFlags);
             }
 
             var bodyBytes = body.ToArray();
@@ -8244,6 +8388,155 @@ namespace CdJsonModManager
             return Lz4BlockDecompress(data, originalSize);
         }
 
+        private const uint ChachaHashInit = 0x000C5EDEu;
+        private const uint ChachaIvXor = 0x60616263u;
+        private static readonly uint[] ChachaKeyDeltas = new uint[]
+        {
+            0x00000000u, 0x0A0A0A0Au, 0x0C0C0C0Cu, 0x06060606u,
+            0x0E0E0E0Eu, 0x0A0A0A0Au, 0x06060606u, 0x02020202u
+        };
+
+        public static byte[] CryptChaCha20ByFileName(byte[] data, string fileName)
+        {
+            if (data == null) data = new byte[0];
+            var basename = (Path.GetFileName(fileName) ?? fileName ?? "").ToLowerInvariant();
+            var seed = HashLittle(Encoding.UTF8.GetBytes(basename), ChachaHashInit);
+            var keyBase = seed ^ ChachaIvXor;
+            var key = ChachaKeyDeltas.Select(delta => keyBase ^ delta).ToArray();
+            var nonce = new[] { seed, seed, seed, seed };
+            return ChaCha20Xor(data, key, nonce);
+        }
+
+        private static byte[] ChaCha20Xor(byte[] input, uint[] key, uint[] nonce)
+        {
+            var output = new byte[input.Length];
+            var constants = new uint[] { 0x61707865u, 0x3320646Eu, 0x79622D32u, 0x6B206574u };
+            var state = new uint[16];
+            Array.Copy(constants, 0, state, 0, 4);
+            Array.Copy(key, 0, state, 4, 8);
+            Array.Copy(nonce, 0, state, 12, 4);
+
+            var offset = 0;
+            while (offset < input.Length)
+            {
+                var block = ChaCha20Block(state);
+                var take = Math.Min(64, input.Length - offset);
+                for (int i = 0; i < take; i++) output[offset + i] = (byte)(input[offset + i] ^ block[i]);
+                offset += take;
+                unchecked
+                {
+                    state[12]++;
+                    if (state[12] == 0) state[13]++;
+                }
+            }
+            return output;
+        }
+
+        private static byte[] ChaCha20Block(uint[] state)
+        {
+            var x = new uint[16];
+            Array.Copy(state, x, 16);
+            for (int i = 0; i < 10; i++)
+            {
+                QuarterRound(x, 0, 4, 8, 12);
+                QuarterRound(x, 1, 5, 9, 13);
+                QuarterRound(x, 2, 6, 10, 14);
+                QuarterRound(x, 3, 7, 11, 15);
+                QuarterRound(x, 0, 5, 10, 15);
+                QuarterRound(x, 1, 6, 11, 12);
+                QuarterRound(x, 2, 7, 8, 13);
+                QuarterRound(x, 3, 4, 9, 14);
+            }
+
+            var bytes = new byte[64];
+            for (int i = 0; i < 16; i++)
+            {
+                var value = unchecked(x[i] + state[i]);
+                bytes[i * 4] = (byte)value;
+                bytes[i * 4 + 1] = (byte)(value >> 8);
+                bytes[i * 4 + 2] = (byte)(value >> 16);
+                bytes[i * 4 + 3] = (byte)(value >> 24);
+            }
+            return bytes;
+        }
+
+        private static void QuarterRound(uint[] x, int a, int b, int c, int d)
+        {
+            unchecked
+            {
+                x[a] += x[b]; x[d] = Rotl(x[d] ^ x[a], 16);
+                x[c] += x[d]; x[b] = Rotl(x[b] ^ x[c], 12);
+                x[a] += x[b]; x[d] = Rotl(x[d] ^ x[a], 8);
+                x[c] += x[d]; x[b] = Rotl(x[b] ^ x[c], 7);
+            }
+        }
+
+        private static uint Rotl(uint value, int bits)
+        {
+            return (value << bits) | (value >> (32 - bits));
+        }
+
+        private static uint HashLittle(byte[] data, uint initval)
+        {
+            unchecked
+            {
+                var length = data != null ? data.Length : 0;
+                var remaining = length;
+                uint a = 0xDEADBEEFu + (uint)length + initval;
+                uint b = a;
+                uint c = a;
+                var offset = 0;
+                while (remaining > 12)
+                {
+                    a += BitConverter.ToUInt32(data, offset);
+                    b += BitConverter.ToUInt32(data, offset + 4);
+                    c += BitConverter.ToUInt32(data, offset + 8);
+                    Mix(ref a, ref b, ref c);
+                    offset += 12;
+                    remaining -= 12;
+                }
+
+                var tail = new byte[12];
+                if (remaining > 0) Array.Copy(data, offset, tail, 0, remaining);
+                if (remaining >= 12) c += BitConverter.ToUInt32(tail, 8);
+                else if (remaining >= 9) c += BitConverter.ToUInt32(tail, 8) & (0xFFFFFFFFu >> (8 * (12 - remaining)));
+                if (remaining >= 8) b += BitConverter.ToUInt32(tail, 4);
+                else if (remaining >= 5) b += BitConverter.ToUInt32(tail, 4) & (0xFFFFFFFFu >> (8 * (8 - remaining)));
+                if (remaining >= 4) a += BitConverter.ToUInt32(tail, 0);
+                else if (remaining >= 1) a += BitConverter.ToUInt32(tail, 0) & (0xFFFFFFFFu >> (8 * (4 - remaining)));
+                else return c;
+                Final(ref a, ref b, ref c);
+                return c;
+            }
+        }
+
+        private static void Mix(ref uint a, ref uint b, ref uint c)
+        {
+            unchecked
+            {
+                a -= c; a ^= Rotl(c, 4); c += b;
+                b -= a; b ^= Rotl(a, 6); a += c;
+                c -= b; c ^= Rotl(b, 8); b += a;
+                a -= c; a ^= Rotl(c, 16); c += b;
+                b -= a; b ^= Rotl(a, 19); a += c;
+                c -= b; c ^= Rotl(b, 4); b += a;
+            }
+        }
+
+        private static void Final(ref uint a, ref uint b, ref uint c)
+        {
+            unchecked
+            {
+                c ^= b; c -= Rotl(b, 14);
+                a ^= c; a -= Rotl(c, 11);
+                b ^= a; b -= Rotl(a, 25);
+                c ^= b; c -= Rotl(b, 16);
+                a ^= c; a -= Rotl(c, 4);
+                b ^= a; b -= Rotl(a, 14);
+                c ^= b; c -= Rotl(b, 24);
+            }
+        }
+
         // ============================================================
         // PAMT parse + entry-section byte offset (so callers can patch
         // entries in place by computing entrySectionStart + idx*20).
@@ -8407,8 +8700,6 @@ namespace CdJsonModManager
             c ^= b; c -= Rotl(b, 24);
             return c;
         }
-
-        private static uint Rotl(uint x, int k) { return (x << k) | (x >> (32 - k)); }
 
         // For huge files, allocate the whole file into memory and call HashLittle once.
         public static uint HashLittleFile(string path, uint initval)
@@ -8947,6 +9238,7 @@ namespace CdJsonModManager
 
         public bool Compressed { get { return CompSize != OrigSize; } }
         public int CompressionType { get { return (int)((Flags >> 16) & 0x0F); } }
+        public int EncryptionType { get { return (int)((Flags >> 20) & 0x0F); } }
     }
 
     internal sealed class NexusLink
