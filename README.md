@@ -67,13 +67,11 @@ build.cmd
 
 Produces `Ultimate JSON Mod Manager.exe`. Requires Roslyn `csc.exe` from Visual Studio Build Tools or a full Visual Studio install. You can set the `CSC` environment variable to a Roslyn-capable compiler path.
 
-Targets .NET Framework 4.x with C# 7.3 language features. Source is in [`src/Program.cs`](src/Program.cs).
+Targets .NET Framework 4.x with C# 7.3 language features. Source is split across `src/*.cs`.
 
 ## Maintainers
 
-The app is intentionally still a compact WinForms project, but most implementation lives in one file. See [`MAINTAINING.md`](MAINTAINING.md) for a map of the import/apply pipeline, the major `Program.cs` sections, and the safest future refactor order.
-
-Short version: the one-file source is not ideal forever, but it is documented now. If someone else continues the manager, they should split low-risk helper code first and leave `ManagerForm` for last.
+The app is still a compact WinForms project, but the main responsibilities are now split into focused source files. See [`MAINTAINING.md`](MAINTAINING.md) for a map of the import/apply pipeline and the safest next refactor steps.
 
 ## Tech
 

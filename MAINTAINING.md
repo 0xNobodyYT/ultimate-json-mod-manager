@@ -1,6 +1,6 @@
 # Maintaining UJMM
 
-UJMM is currently a compact WinForms app with almost all logic in `src/Program.cs`. That keeps releases simple, but it also means new maintainers need a map. This file is that map.
+UJMM is a compact WinForms app, but the old single-file implementation has been split into focused source files under `src/`. The app still uses one `ManagerForm` type for shared UI state; the form is now organized with partial classes so maintainers can work on one area without scrolling through the whole program.
 
 ## High-Level Flow
 
@@ -19,21 +19,22 @@ All line numbers drift, so search by method/class name.
 
 | Area | Where to Look | What It Does |
 | --- | --- | --- |
-| App constants/startup | `Program`, `ManagerForm` constructor | Version, Nexus settings, folder setup, config load, UI bootstrap |
-| UI layout | `BuildUi`, `BuildTopBar`, `BuildInstallPanel`, `BuildWorkspacePanel`, `BuildInspectorPanel` | Main WinForms layout |
-| Settings | `ShowSettingsDialog`, `BuildPathCard`, `BuildThemeSwatches` | Game folder and theme controls |
-| Import | `ImportPaths`, `CollectImportCandidates`, `ExtractArchiveForImport` | Drag/drop, click import, archive extraction, package detection |
-| RAW/Browser detection | `IsRawOverlayDirectory`, `IsLooseRawOverlayRoot`, `IsBrowserModDirectory` | Decides whether a folder is an overlay package |
-| Mod loading | `JsonMod.Load`, `JsonMod.LoadOverlayDirectory`, `LoadFieldFormat` | Parses JSON v2, JSON v3/FIELDS, RAW, Browser/UI |
-| Preview | `FocusMod`, `RefreshPatchList`, `PatchChange` | Builds visible patch rows and preset rail |
-| Validation | `RunValidation`, `ValidateChangeAgainstLiveBytes` | Checks original-byte guards against current game archives |
-| Apply | `ApplyOverlayStub`, `ApplyBytePatchMods`, `InstallOverlayMods` | Applies byte patches and overlay packages |
-| Loose overlay packing | `BuildLooseOverlayPackage`, `BuildLooseOverlayPamt`, `BuildLooseOverlayFileBytes` | Packs loose UI/RAW files into game-readable PAZ/PAMT |
-| XML patching | `ApplyXmlMergeDocument`, `ApplyXmlPatchDocument` | Materializes `.merge` and `.patch` files before packing |
-| Archive IO | `ArchiveExtractor`, `PamtParser`, `Lz4BlockCompress` | Reads Crimson Desert archives and writes overlay payloads |
-| Checksums | `PaChecksum` | Updates PAZ/PAMT/PAPGT checksum fields |
-| Nexus | `NexusClient`, `NexusSsoDialog`, `HandleNxmUrl` | SSO, API calls, NXM downloads, update checks |
-| Crash reports | `CrashReporter`, `BugReportDialog` | Local crash JSON and prefilled GitHub issue URLs |
+| Area | Where to Look | What It Does |
+| --- | --- | --- |
+| App constants/startup | `Program.cs` | Version, Nexus constants, app startup, shared form fields, constructor |
+| Configuration | `ManagerForm.Configuration.cs` | `config.json`, saved theme, string/list/dictionary config helpers |
+| UI layout | `ManagerForm.Layout.cs` | Top bar, install panel, patch board, ASI tab, inspector, theming |
+| Mod library and cards | `ManagerForm.ModLibrary.cs` | `LoadMods`, ordering, preset rail, patch-board rows, card selection/deletion |
+| Import | `ManagerForm.Import.cs` | Drag/drop, click import, archive extraction, RAW/Browser package detection, ASI file management |
+| Nexus workflow | `ManagerForm.Nexus.cs`, `NexusIntegration.cs` | SSO, API calls, NXM downloads, feed cards, app/mod update checks |
+| Validation and JSON v3 fields | `ManagerForm.Validation.cs` | Check Match, live-byte validation, FIELDS resolution, raw field-slice matching |
+| Loose overlay packing | `ManagerForm.OverlayPackaging.cs` | Packs loose RAW/Browser files into generated `0.paz`/`0.pamt`, XML merge/patch handling |
+| Apply/restore patching | `ManagerForm.PazPatch.cs` | Byte-patch apply, PAZ append, loose-file fallback, restore of appended data |
+| Backup/game detection | `ManagerForm.BackupAndDetection.cs` | Backup roots, restore guard, Steam/Linux game-folder detection |
+| Models and parsers | `ModModels.cs` | `JsonMod`, `PatchChange`, metadata parsing, JSON v2/v3/RAW/Browser loading |
+| Archive IO | `ArchiveExtractor.cs` | PAMT parsing, PAZ extraction, LZ4, Pearl Abyss checksum |
+| Custom controls | `UiControls.cs`, `Theme.cs` | Painted panels, pills, buttons, checks, tabs, theme palettes |
+| Crash reports | `CrashReporting.cs` | Local crash JSON and prefilled GitHub issue URLs |
 
 ## Supported Import Shapes
 
@@ -75,14 +76,10 @@ After a Crimson Desert update, users should verify Steam files or otherwise rest
 
 ## Future Refactor Order
 
-The safest split is by low-coupling code first:
+The first split is done. The safest next steps are:
 
-1. Move custom controls (`RoundedPanel`, `Pill`, `GradientButton`, `FlatCheck`, etc.) to `Controls/`.
-2. Move Nexus classes to `Nexus/`.
-3. Move crash reporting to `Diagnostics/`.
-4. Move archive parsing/checksum/LZ4 code to `Archive/`.
-5. Move mod parsers (`JsonMod`, `PatchChange`) to `Mods/`.
-6. Move apply/restore code to `Install/`.
-7. Only then split `ManagerForm` UI builders into partial classes.
-
-Do not start by splitting `ManagerForm`; it touches nearly every state field and is the easiest place to introduce regressions.
+1. Move `ArchiveExtractor.cs` into an `Archive/` folder and split parser/checksum/compression types.
+2. Move `ModModels.cs` into a `Mods/` folder and split JSON byte patches, v3/FIELDS parsing, and RAW/Browser metadata.
+3. Move `NexusIntegration.cs` into a `Nexus/` folder and separate API client, dialogs, and protocol handling.
+4. Gradually replace shared `ManagerForm` state with small service classes only after behavior is covered by smoke tests.
+5. Keep each follow-up refactor mechanical and build after every slice.

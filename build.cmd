@@ -6,7 +6,7 @@ REM CSC env var to a Roslyn-capable csc.exe (langversion 7+).
 
 setlocal
 set "OUT=Ultimate JSON Mod Manager.exe"
-set "SRC=src\Program.cs"
+set "SRC=src\*.cs"
 
 if not defined CSC (
     if exist "C:\BuildTools\MSBuild\Current\Bin\Roslyn\csc.exe" (
@@ -37,7 +37,7 @@ echo Building with: %CSC%
     /reference:System.Windows.Forms.dll ^
     /reference:System.Web.Extensions.dll ^
     /reference:System.IO.Compression.dll ^
-    "%SRC%"
+    %SRC%
 
 if %ERRORLEVEL% neq 0 (
     echo Build failed.
