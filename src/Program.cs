@@ -2031,9 +2031,15 @@ namespace CdJsonModManager
                 MessageBox.Show("No Nexus update info available.\r\n\r\n" + (string.IsNullOrEmpty(err) ? "Sign in with Nexus, or open the UJMM Nexus page manually." : err), "No update info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+            var compare = UpdateChecker.CompareVersions(info.TagName, Program.AppVersion);
+            if (compare < 0)
+            {
+                MessageBox.Show("Nexus currently lists version " + info.TagName.TrimStart('v', 'V') + ".\r\n\r\nYou're running " + Program.AppVersion + ", which is newer than the version visible on Nexus.", "No Nexus update", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             if (!UpdateChecker.IsNewer(info.TagName, Program.AppVersion))
             {
-                MessageBox.Show("You're on the latest version (" + Program.AppVersion + ").", "Up to date", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("You're on the latest Nexus version (" + Program.AppVersion + ").", "Up to date", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             using (var dlg = new UpdateDialog(info))
@@ -2051,12 +2057,22 @@ namespace CdJsonModManager
                 return null;
             }
 
-            var modInfo = NexusClient.GetMod(nexusApiKey, Program.NexusGameDomain, Program.NexusAppModId, out error);
-            if (modInfo == null) return null;
+            var files = NexusClient.GetModFiles(nexusApiKey, Program.NexusGameDomain, Program.NexusAppModId, out error);
+            var latestFile = files != null
+                ? files
+                    .Where(file => !IsNexusOldFile(file))
+                    .OrderByDescending(file => IsNexusMainFile(file) ? 1 : 0)
+                    .ThenByDescending(NexusFileTimestamp)
+                    .FirstOrDefault(file => !string.IsNullOrWhiteSpace(NexusString(file, "version")))
+                : null;
 
-            var version = modInfo.ContainsKey("version") ? Convert.ToString(modInfo["version"]) : "";
-            var name = modInfo.ContainsKey("name") ? Convert.ToString(modInfo["name"]) : Program.AppDisplayName;
-            var summary = modInfo.ContainsKey("summary") ? Convert.ToString(modInfo["summary"]) : "";
+            var modInfo = NexusClient.GetMod(nexusApiKey, Program.NexusGameDomain, Program.NexusAppModId, out error);
+            if (modInfo == null && latestFile == null) return null;
+
+            var version = latestFile != null ? NexusString(latestFile, "version") : "";
+            if (string.IsNullOrWhiteSpace(version) && modInfo != null && modInfo.ContainsKey("version")) version = Convert.ToString(modInfo["version"]);
+            var name = modInfo != null && modInfo.ContainsKey("name") ? Convert.ToString(modInfo["name"]) : Program.AppDisplayName;
+            var summary = modInfo != null && modInfo.ContainsKey("summary") ? Convert.ToString(modInfo["summary"]) : "";
             return new UpdateChecker.ReleaseInfo
             {
                 TagName = version,
@@ -2064,6 +2080,38 @@ namespace CdJsonModManager
                 Body = string.IsNullOrEmpty(summary) ? "Open the Nexus files tab to download the latest UJMM build." : summary,
                 HtmlUrl = Program.NexusAppFilesUrl
             };
+        }
+
+        private static string NexusString(Dictionary<string, object> data, string key)
+        {
+            return data != null && data.ContainsKey(key) && data[key] != null ? Convert.ToString(data[key]) : "";
+        }
+
+        private static long NexusFileTimestamp(Dictionary<string, object> file)
+        {
+            foreach (var key in new[] { "uploaded_timestamp", "uploaded_time", "date", "timestamp" })
+            {
+                long value;
+                if (file != null && file.ContainsKey(key) && file[key] != null && long.TryParse(Convert.ToString(file[key]), out value)) return value;
+            }
+            return 0;
+        }
+
+        private static bool IsNexusOldFile(Dictionary<string, object> file)
+        {
+            if (file == null) return true;
+            var category = NexusString(file, "category_name");
+            if (!string.IsNullOrWhiteSpace(category) && category.IndexOf("old", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            var categoryId = NexusString(file, "category_id");
+            if (categoryId == "3") return true;
+            return false;
+        }
+
+        private static bool IsNexusMainFile(Dictionary<string, object> file)
+        {
+            var category = NexusString(file, "category_name");
+            if (!string.IsNullOrWhiteSpace(category) && category.IndexOf("main", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return NexusString(file, "category_id") == "1";
         }
 
         private void HandleNxmUrl(string url)
@@ -2994,9 +3042,26 @@ namespace CdJsonModManager
                         if (!byId.ContainsKey(link.ModId)) continue;
                         var newest = byId[link.ModId];
                         if (newest <= link.LatestFileTimestamp && link.LatestFileTimestamp != 0) continue;
-                        var modInfo = NexusClient.GetMod(key, Program.NexusGameDomain, link.ModId, out err);
-                        if (modInfo == null) continue;
-                        var latestVer = modInfo.ContainsKey("version") ? Convert.ToString(modInfo["version"]) : "";
+                        var latestVer = "";
+                        var files = NexusClient.GetModFiles(key, Program.NexusGameDomain, link.ModId, out err);
+                        var latestFile = files != null
+                            ? files
+                                .Where(file => !IsNexusOldFile(file))
+                                .OrderByDescending(file => IsNexusMainFile(file) ? 1 : 0)
+                                .ThenByDescending(NexusFileTimestamp)
+                                .FirstOrDefault(file => !string.IsNullOrWhiteSpace(NexusString(file, "version")))
+                            : null;
+                        if (latestFile != null)
+                        {
+                            latestVer = NexusString(latestFile, "version");
+                            newest = Math.Max(newest, NexusFileTimestamp(latestFile));
+                        }
+                        if (string.IsNullOrWhiteSpace(latestVer))
+                        {
+                            var modInfo = NexusClient.GetMod(key, Program.NexusGameDomain, link.ModId, out err);
+                            if (modInfo == null) continue;
+                            latestVer = modInfo.ContainsKey("version") ? Convert.ToString(modInfo["version"]) : "";
+                        }
                         link.LatestVersion = latestVer ?? "";
                         link.LatestFileTimestamp = newest;
                         link.LastCheckUtc = DateTime.UtcNow.ToString("u");
@@ -9399,18 +9464,26 @@ namespace CdJsonModManager
 
         public static bool IsNewer(string remoteTag, string localVersion)
         {
-            if (string.IsNullOrEmpty(remoteTag) || string.IsNullOrEmpty(localVersion)) return false;
+            return CompareVersions(remoteTag, localVersion) > 0;
+        }
+
+        public static int CompareVersions(string remoteTag, string localVersion)
+        {
+            if (string.IsNullOrEmpty(remoteTag) || string.IsNullOrEmpty(localVersion)) return 0;
             var r = NormalizeVersion(remoteTag);
             var l = NormalizeVersion(localVersion);
-            if (r == null || l == null) return !string.Equals(remoteTag.TrimStart('v', 'V'), localVersion.TrimStart('v', 'V'), StringComparison.OrdinalIgnoreCase);
+            if (r == null || l == null)
+            {
+                return string.Compare(remoteTag.TrimStart('v', 'V'), localVersion.TrimStart('v', 'V'), StringComparison.OrdinalIgnoreCase);
+            }
             for (int i = 0; i < Math.Max(r.Length, l.Length); i++)
             {
                 int rv = i < r.Length ? r[i] : 0;
                 int lv = i < l.Length ? l[i] : 0;
-                if (rv > lv) return true;
-                if (rv < lv) return false;
+                if (rv > lv) return 1;
+                if (rv < lv) return -1;
             }
-            return false;
+            return 0;
         }
 
         private static int[] NormalizeVersion(string v)
@@ -9909,6 +9982,38 @@ namespace CdJsonModManager
             var json = Get(apiKey, "/games/" + game + "/mods/" + modId + ".json", out status, out rem, out lim, out error);
             if (string.IsNullOrEmpty(json)) return null;
             try { return new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string, object>>(json); }
+            catch (Exception ex) { error = ex.Message; return null; }
+        }
+
+        public static List<Dictionary<string, object>> GetModFiles(string apiKey, string game, int modId, out string error)
+        {
+            int status; int rem; int lim;
+            var json = Get(apiKey, "/games/" + game + "/mods/" + modId + "/files.json", out status, out rem, out lim, out error);
+            if (string.IsNullOrEmpty(json)) return null;
+            try
+            {
+                var serializer = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+                var root = serializer.Deserialize<object>(json);
+                var list = new List<Dictionary<string, object>>();
+                Action<object> collect = null;
+                collect = value =>
+                {
+                    var dict = value as Dictionary<string, object>;
+                    if (dict != null)
+                    {
+                        if (dict.ContainsKey("version") || dict.ContainsKey("file_id") || dict.ContainsKey("file_name")) list.Add(dict);
+                        foreach (var child in dict.Values) collect(child);
+                        return;
+                    }
+                    var arr = value as object[];
+                    if (arr != null)
+                    {
+                        foreach (var child in arr) collect(child);
+                    }
+                };
+                collect(root);
+                return list;
+            }
             catch (Exception ex) { error = ex.Message; return null; }
         }
 
