@@ -37,6 +37,7 @@ namespace CdJsonModManager
             Directory.CreateDirectory(validationCacheDir);
             ResetFieldResolutions(selected);
             ResolveFieldFormatMods(selected, validationCacheDir);
+            ResolveEntryAnchoredPatches(selected, validationCacheDir);
             Log("Starting mod match verification...");
             var checkedCount = 0;
             var overlayChecked = 0;
@@ -81,9 +82,16 @@ namespace CdJsonModManager
                     var data = File.ReadAllBytes(file);
                     var original = HexToBytes(change.Original);
                     var patched = HexToBytes(change.Patched);
-                    if (change.Offset < 0 || change.Offset + original.Length > data.Length)
+                    var checkLength = change.IsInsert && original.Length == 0 ? 0 : original.Length;
+                    if (change.Offset < 0 || change.Offset + checkLength > data.Length)
                     {
                         issues.Add("Out of range: " + change.Label);
+                        continue;
+                    }
+
+                    if (change.IsInsert && original.Length == 0)
+                    {
+                        checkedCount++;
                         continue;
                     }
 
@@ -125,10 +133,13 @@ namespace CdJsonModManager
         {
             foreach (var change in selected.SelectMany(m => m.Changes))
             {
-                if (string.IsNullOrWhiteSpace(change.FieldPath)) continue;
-                change.Offset = 0;
-                change.Original = "";
-                change.Patched = "";
+                if (string.IsNullOrWhiteSpace(change.FieldPath) && !change.IsEntryAnchored) continue;
+                change.Offset = change.HasOffsetFallback ? change.OffsetFallback : 0;
+                if (!string.IsNullOrWhiteSpace(change.FieldPath))
+                {
+                    change.Original = "";
+                    change.Patched = "";
+                }
                 change.IsResolvedBytes = false;
                 change.ResolveError = "";
             }
@@ -276,37 +287,42 @@ namespace CdJsonModManager
                     var tuple = maps[gameFile];
                     var bytes = tuple.Item1;
                     var entryMap = tuple.Item2;
-                    FieldEntry entry;
-                    if (!entryMap.TryGetValue(change.EntryName ?? "", out entry))
-                    {
-                        change.ResolveError = "Entry '" + change.EntryName + "' was not found in " + gameFile + ".";
-                        continue;
-                    }
-
                     int offset;
                     int length;
                     byte[] patched;
                     change.ResolveSourceBytes = bytes;
-                    if (TryResolveKnownField(change, entry, out offset, out length, out patched))
+                    FieldEntry entry;
+                    if (!entryMap.TryGetValue(change.EntryName ?? "", out entry))
                     {
-                        if (offset < 0 || offset + length > bytes.Length)
+                        if (!TryResolveRawFieldSlice(change, null, out offset, out length, out patched))
                         {
-                            change.ResolveError = "Resolved field offset is outside " + gameFile + ".";
+                            change.ResolveError = "Entry '" + change.EntryName + "' was not found in " + gameFile + ".";
                             continue;
                         }
-                        change.Offset = offset;
-                        change.Original = BytesToHex(bytes.Skip(offset).Take(length).ToArray());
-                        change.Patched = BytesToHex(patched);
-                        change.IsResolvedBytes = true;
-                        change.ResolveError = "";
-                        if (!string.IsNullOrWhiteSpace(change.TargetDisplay))
-                        {
-                            change.TargetDisplay = change.TargetDisplay + "  @ +0x" + offset.ToString("X");
-                        }
+                    }
+                    else if (TryResolveKnownField(change, entry, out offset, out length, out patched))
+                    {
+                        // handled below
                     }
                     else
                     {
                         change.ResolveError = "Unsupported field path '" + change.FieldPath + "' in " + Path.GetFileName(gameFile) + ".";
+                        continue;
+                    }
+
+                    if (offset < 0 || offset + length > bytes.Length)
+                    {
+                        change.ResolveError = "Resolved field offset is outside " + gameFile + ".";
+                        continue;
+                    }
+                    change.Offset = offset;
+                    change.Original = BytesToHex(bytes.Skip(offset).Take(length).ToArray());
+                    change.Patched = BytesToHex(patched);
+                    change.IsResolvedBytes = true;
+                    change.ResolveError = "";
+                    if (!string.IsNullOrWhiteSpace(change.TargetDisplay))
+                    {
+                        change.TargetDisplay = change.TargetDisplay + "  @ +0x" + offset.ToString("X");
                     }
                 }
                 catch (Exception ex)
@@ -325,6 +341,88 @@ namespace CdJsonModManager
                 Log("Resolved " + resolved + " field-format patch(es) to byte offsets.");
                 RefreshPatchList();
             }
+        }
+
+        private void ResolveEntryAnchoredPatches(IEnumerable<JsonMod> selected, string extractCacheDir)
+        {
+            var unresolved = selected.SelectMany(m => m.Changes)
+                .Where(c => !c.IsResolvedBytes && c.IsEntryAnchored && string.IsNullOrWhiteSpace(c.FieldPath))
+                .ToList();
+            if (unresolved.Count == 0) return;
+
+            var maps = new Dictionary<string, Tuple<byte[], Dictionary<string, FieldEntry>>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var change in unresolved)
+            {
+                try
+                {
+                    var gameFile = change.GameFile ?? "";
+                    if (!maps.ContainsKey(gameFile))
+                    {
+                        var dataPath = ArchiveExtractor.Extract(gamePath, gameFile, extractCacheDir, Log);
+                        var schemaFile = Path.ChangeExtension(gameFile, ".pabgh");
+                        var schemaPath = ArchiveExtractor.Extract(gamePath, schemaFile, extractCacheDir, Log);
+                        if (dataPath == null || !File.Exists(dataPath) || schemaPath == null || !File.Exists(schemaPath))
+                        {
+                            change.ResolveError = "Could not extract " + gameFile + " and its .pabgh companion.";
+                            TryUseOffsetFallback(change, null);
+                            continue;
+                        }
+                        var data = File.ReadAllBytes(dataPath);
+                        var schema = File.ReadAllBytes(schemaPath);
+                        var builtMap = BuildFieldEntryMap(data, schema).Item1;
+                        maps[gameFile] = Tuple.Create(data, builtMap);
+                    }
+
+                    var tuple = maps[gameFile];
+                    var bytes = tuple.Item1;
+                    var entryMap = tuple.Item2;
+                    FieldEntry entry;
+                    if (!entryMap.TryGetValue(change.EntryName ?? "", out entry))
+                    {
+                        change.ResolveError = "Entry '" + change.EntryName + "' was not found in " + gameFile + ".";
+                        TryUseOffsetFallback(change, bytes);
+                        continue;
+                    }
+
+                    var offset = entry.BlobStart + change.RelOffset;
+                    var patchLen = change.IsInsert ? HexToBytes(change.Patched).Length : HexToBytes(change.Original).Length;
+                    var relLimit = change.IsInsert ? entry.BlobSize : entry.BlobSize - patchLen;
+                    if (change.RelOffset < 0 || change.RelOffset > relLimit || offset < 0 || offset + patchLen > bytes.Length)
+                    {
+                        change.ResolveError = "Entry-relative offset is outside '" + change.EntryName + "'.";
+                        TryUseOffsetFallback(change, bytes);
+                        continue;
+                    }
+
+                    change.Offset = offset;
+                    change.IsResolvedBytes = true;
+                    change.ResolveError = "";
+                    if (!string.IsNullOrWhiteSpace(change.TargetDisplay))
+                        change.TargetDisplay = Path.GetFileName(gameFile) + " - " + change.EntryName + " @ +0x" + change.RelOffset.ToString("X");
+                }
+                catch (Exception ex)
+                {
+                    change.ResolveError = ex.Message;
+                    TryUseOffsetFallback(change, null);
+                }
+            }
+
+            int resolved = unresolved.Count(c => c.IsResolvedBytes);
+            if (resolved > 0)
+            {
+                Log("Resolved " + resolved + " entry-relative JSON patch(es) to byte offsets.");
+                RefreshPatchList();
+            }
+        }
+
+        private static void TryUseOffsetFallback(PatchChange change, byte[] data)
+        {
+            if (!change.HasOffsetFallback) return;
+            var len = change.IsInsert ? HexToBytes(change.Patched).Length : HexToBytes(change.Original).Length;
+            if (data != null && (change.OffsetFallback < 0 || change.OffsetFallback + len > data.Length)) return;
+            change.Offset = change.OffsetFallback;
+            change.IsResolvedBytes = true;
+            change.ResolveError = "Used absolute offset fallback.";
         }
 
         private static bool TryResolveKnownField(PatchChange change, FieldEntry entry, out int offset, out int length, out byte[] patched)
@@ -371,7 +469,7 @@ namespace CdJsonModManager
             length = 0;
             patched = null;
 
-            if (entry == null || string.IsNullOrWhiteSpace(change.OldValue) || string.IsNullOrWhiteSpace(change.NewValue)) return false;
+            if (string.IsNullOrWhiteSpace(change.OldValue) || string.IsNullOrWhiteSpace(change.NewValue)) return false;
             if (!LooksLikeHex(change.OldValue) || !LooksLikeHex(change.NewValue)) return false;
 
             var oldBytes = HexToBytes(change.OldValue);
@@ -382,12 +480,11 @@ namespace CdJsonModManager
             if (source == null || source.Length == 0) return false;
 
             var absoluteHints = change.AbsoluteOffsetHints;
-            if (absoluteHints != null)
+            if (absoluteHints != null && absoluteHints.Count > 0)
             {
                 foreach (var hint in absoluteHints)
                 {
-                    if (hint < entry.BlobStart || hint + oldBytes.Length > entry.BlobStart + entry.BlobSize) continue;
-                    if (source == null || source.Length == 0 || hint + oldBytes.Length > source.Length) continue;
+                    if (hint < 0 || hint + oldBytes.Length > source.Length) continue;
                     bool hintMatches = true;
                     for (int i = 0; i < oldBytes.Length; i++)
                     {
@@ -399,7 +496,11 @@ namespace CdJsonModManager
                     patched = newBytes;
                     return true;
                 }
+                change.ResolveError = "Raw field bytes did not match any explicit offset hint for '" + change.EntryName + "'.";
+                return false;
             }
+
+            if (entry == null) return false;
 
             var matches = new List<int>();
             var start = entry.BlobStart;

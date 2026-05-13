@@ -40,12 +40,12 @@ All line numbers drift, so search by method/class name.
 
 | Shape | Example | Result |
 | --- | --- | --- |
-| JSON v2 byte patch | `Resource Costs.json` | Loaded as patch changes |
+| JSON v2 byte patch | `Resource Costs.json`, `entry` + `rel_offset` | Loaded as patch changes; entry-relative offsets are resolved through the companion `.pabgh` table |
 | JSON v3/FIELDS | `format: 3` with `target` or `targets` | Loaded as field-intent preview rows |
 | Archive envelope | `.zip`, `.7z`, `.rar` | Extracted to a short temp folder, then recursively classified |
 | Compiled RAW overlay | `0036\0.pamt` + `0.paz` | Copied into the next free game overlay slot |
 | Loose RAW root | `mod.json` + `character/...` or `ui/...` | Packed into `0.paz`/`0.pamt`, then registered |
-| Browser/UI package | `manifest.json` + `files\0012\...` | Packed/registered like an overlay |
+| Browser/UI package | `manifest.json` + `files\0012\...` | Wrapper group folders are stripped, then files are packed/registered like an overlay |
 | Runtime hooks | `.asi`, `.dll`, `.ini` | Copied to `bin64` and tracked under `mods\_asi` |
 
 ZIP files use .NET's built-in ZIP reader. `.7z` and `.rar` require a local 7-Zip executable, which UJMM searches for in standard install locations.

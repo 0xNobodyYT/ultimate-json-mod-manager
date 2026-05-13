@@ -36,13 +36,14 @@ namespace CdJsonModManager
             if (root == null) throw new InvalidDataException("JSON root is not an object.");
             if (IsFieldFormat(root)) return LoadFieldFormat(path, root);
 
+            var info = root.ContainsKey("modinfo") ? root["modinfo"] as Dictionary<string, object> : null;
             var mod = new JsonMod
             {
                 Path = path,
-                Name = GetString(root, "name", System.IO.Path.GetFileNameWithoutExtension(path)),
-                Version = GetString(root, "version", ""),
-                Description = GetString(root, "description", ""),
-                Author = GetString(root, "author", ""),
+                Name = info != null ? GetString(info, "title", GetString(info, "name", System.IO.Path.GetFileNameWithoutExtension(path))) : GetString(root, "name", System.IO.Path.GetFileNameWithoutExtension(path)),
+                Version = info != null ? GetString(info, "version", GetString(root, "version", "")) : GetString(root, "version", ""),
+                Description = info != null ? GetString(info, "description", GetString(root, "description", "")) : GetString(root, "description", ""),
+                Author = info != null ? GetString(info, "author", GetString(root, "author", "")) : GetString(root, "author", ""),
                 FormatTag = "JSON",
                 Changes = new List<PatchChange>(),
                 Groups = new List<string>(),
@@ -62,15 +63,7 @@ namespace CdJsonModManager
                     {
                         var change = changeObj as Dictionary<string, object>;
                         if (change == null) continue;
-                        mod.Changes.Add(new PatchChange
-                        {
-                            GameFile = gameFile,
-                            Offset = Convert.ToInt32(change["offset"]),
-                            Label = GetString(change, "label", ""),
-                            Original = GetString(change, "original", "").Replace(" ", ""),
-                            Patched = GetString(change, "patched", "").Replace(" ", ""),
-                            IsResolvedBytes = true
-                        });
+                        AddClassicChange(mod, gameFile, patch, change);
                     }
                 }
             }
@@ -81,21 +74,71 @@ namespace CdJsonModManager
                 {
                     var change = changeObj as Dictionary<string, object>;
                     if (change == null) continue;
-                    mod.Changes.Add(new PatchChange
-                    {
-                        GameFile = gameFile,
-                        Offset = Convert.ToInt32(change["offset"]),
-                        Label = GetString(change, "label", ""),
-                        Original = GetString(change, "original", "").Replace(" ", ""),
-                        Patched = GetString(change, "patched", "").Replace(" ", ""),
-                        IsResolvedBytes = true
-                    });
+                    AddClassicChange(mod, gameFile, root, change);
                 }
             }
 
             mod.Groups = mod.Changes.Select(change => change.Group).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (mod.Groups.Count == 0) mod.Groups.Add("All");
             return mod;
+        }
+
+        private static void AddClassicChange(JsonMod mod, string gameFile, Dictionary<string, object> patch, Dictionary<string, object> change)
+        {
+            int offset;
+            int relOffset;
+            var hasOffset = TryReadIntLike(change, "offset", out offset);
+            var hasRelOffset = TryReadIntLike(change, "rel_offset", out relOffset);
+            if (string.IsNullOrWhiteSpace(gameFile)) gameFile = GetString(change, "game_file", GetString(change, "file", ""));
+
+            var entry = GetString(change, "entry", GetString(patch, "entry", ""));
+            var type = GetString(change, "type", GetString(change, "op", "replace")).Trim();
+            var label = GetString(change, "label", "");
+            if (string.IsNullOrWhiteSpace(label))
+            {
+                var parts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(entry)) parts.Add(entry);
+                if (hasRelOffset) parts.Add("+0x" + relOffset.ToString("X"));
+                else if (hasOffset) parts.Add("0x" + offset.ToString("X"));
+                label = parts.Count > 0 ? string.Join(" ", parts.ToArray()) : "Patch";
+            }
+
+            var original = NormalizeHex(GetString(change, "original", GetString(change, "old", "")));
+            var patched = NormalizeHex(GetString(change, "patched", GetString(change, "new", GetString(change, "bytes", ""))));
+            var c = new PatchChange
+            {
+                GameFile = gameFile,
+                Offset = hasOffset ? offset : 0,
+                Label = label,
+                Original = original,
+                Patched = patched,
+                IsResolvedBytes = hasOffset && (!hasRelOffset || string.IsNullOrWhiteSpace(entry)),
+                EntryName = entry,
+                PatchType = string.IsNullOrWhiteSpace(type) ? "replace" : type,
+                SourceGroup = GetString(patch, "source_group", GetString(change, "source_group", "")),
+                TargetDisplay = System.IO.Path.GetFileName(gameFile) + (string.IsNullOrWhiteSpace(entry) ? "" : " - " + entry)
+            };
+            if (hasOffset)
+            {
+                c.HasOffsetFallback = true;
+                c.OffsetFallback = offset;
+            }
+            if (hasRelOffset)
+            {
+                c.RelOffset = relOffset;
+                c.HasRelOffset = true;
+                c.IsResolvedBytes = false;
+            }
+            if (c.IsInsert && string.IsNullOrWhiteSpace(c.Patched))
+            {
+                c.Patched = NormalizeHex(GetString(change, "insert", ""));
+            }
+            if (!hasOffset && !hasRelOffset)
+            {
+                c.IsResolvedBytes = false;
+                c.ResolveError = "No offset or entry-relative offset was provided.";
+            }
+            mod.Changes.Add(c);
         }
 
         private static bool IsFieldFormat(Dictionary<string, object> root)
@@ -354,6 +397,52 @@ namespace CdJsonModManager
             return hints;
         }
 
+        private static bool TryReadIntLike(Dictionary<string, object> dict, string key, out int value)
+        {
+            value = 0;
+            if (dict == null || !dict.ContainsKey(key) || dict[key] == null) return false;
+            try
+            {
+                var raw = dict[key];
+                if (raw is int)
+                {
+                    value = (int)raw;
+                    return true;
+                }
+                if (raw is long)
+                {
+                    value = checked((int)(long)raw);
+                    return true;
+                }
+                var text = Convert.ToString(raw).Trim();
+                if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = Convert.ToInt32(text.Substring(2), 16);
+                    return true;
+                }
+                if (Regex.IsMatch(text, @"\A[0-9a-fA-F]+\z") && Regex.IsMatch(text, @"[a-fA-F]"))
+                {
+                    value = Convert.ToInt32(text, 16);
+                    return true;
+                }
+                value = Convert.ToInt32(text, System.Globalization.CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch
+            {
+                value = 0;
+                return false;
+            }
+        }
+
+        private static string NormalizeHex(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "";
+            value = value.Trim();
+            if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) value = value.Substring(2);
+            return Regex.Replace(value, @"[^0-9a-fA-F]", "");
+        }
+
         public IEnumerable<PatchChange> ChangesForGroup(string group)
         {
             return string.IsNullOrWhiteSpace(group) ? Changes : Changes.Where(change => string.Equals(change.Group, group, StringComparison.OrdinalIgnoreCase));
@@ -385,6 +474,22 @@ namespace CdJsonModManager
         public byte[] ResolveSourceBytes;
         public string TargetDisplay;
         public string ResolveError;
+        public int RelOffset;
+        public bool HasRelOffset;
+        public int OffsetFallback;
+        public bool HasOffsetFallback;
+        public string PatchType;
+        public string SourceGroup;
+
+        public bool IsEntryAnchored
+        {
+            get { return HasRelOffset && !string.IsNullOrWhiteSpace(EntryName); }
+        }
+
+        public bool IsInsert
+        {
+            get { return string.Equals(PatchType ?? "", "insert", StringComparison.OrdinalIgnoreCase); }
+        }
 
         public string Group
         {

@@ -253,11 +253,16 @@ namespace CdJsonModManager
 
         private static string NormalizeOverlayPatchOutputPath(string relativePath)
         {
-            if (relativePath.EndsWith(".merge", StringComparison.OrdinalIgnoreCase))
-                return relativePath.Substring(0, relativePath.Length - ".merge".Length);
-            if (relativePath.EndsWith(".patch", StringComparison.OrdinalIgnoreCase))
-                return relativePath.Substring(0, relativePath.Length - ".patch".Length);
-            return relativePath;
+            var rel = (relativePath ?? "").Replace('\\', '/').TrimStart('/');
+            if (rel.StartsWith("files/", StringComparison.OrdinalIgnoreCase))
+                rel = rel.Substring("files/".Length);
+            var filesGroup = Regex.Match(rel, @"^\d{4}/(.+)$");
+            if (filesGroup.Success) rel = filesGroup.Groups[1].Value;
+            if (rel.EndsWith(".merge", StringComparison.OrdinalIgnoreCase))
+                rel = rel.Substring(0, rel.Length - ".merge".Length);
+            if (rel.EndsWith(".patch", StringComparison.OrdinalIgnoreCase))
+                rel = rel.Substring(0, rel.Length - ".patch".Length);
+            return rel;
         }
 
         private static byte[] BuildLooseOverlayFileBytes(string sourceFolder, string sourcePath, string relativePath, string gameRoot, OverlayOriginal original, Action<string> log)
@@ -277,6 +282,11 @@ namespace CdJsonModManager
 
             var text = DecodeText(original.Data);
             var patchText = File.ReadAllText(sourcePath, Encoding.UTF8);
+            if (relativePath.EndsWith(".css", StringComparison.OrdinalIgnoreCase))
+            {
+                var css = ApplyCssMerge(text, patchText, log, relativePath);
+                return new UTF8Encoding(false).GetBytes(css);
+            }
             if (string.Equals(ext, ".merge", StringComparison.OrdinalIgnoreCase))
             {
                 if (relativePath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)
@@ -294,6 +304,95 @@ namespace CdJsonModManager
 
             var patched = ApplySimpleXmlPatch(text, patchText, log, relativePath);
             return new UTF8Encoding(false).GetBytes(patched);
+        }
+
+        private sealed class CssRule
+        {
+            public string Selector;
+            public string Body;
+            public int Start;
+            public int End;
+        }
+
+        private static string ApplyCssMerge(string originalText, string mergeText, Action<string> log, string relativePath)
+        {
+            var originalRules = ParseCssRules(originalText);
+            var mergeRules = ParseCssRules(mergeText);
+            if (mergeRules.Count == 0)
+            {
+                if (log != null) log("CSS merge had no rule blocks for " + relativePath + "; appending payload.");
+                return originalText.TrimEnd() + "\r\n\r\n" + mergeText.Trim() + "\r\n";
+            }
+
+            var result = originalText;
+            var changed = 0;
+            var added = 0;
+            foreach (var rule in mergeRules)
+            {
+                var existing = originalRules.FirstOrDefault(r => string.Equals(NormalizeCssSelector(r.Selector), NormalizeCssSelector(rule.Selector), StringComparison.OrdinalIgnoreCase));
+                if (existing == null)
+                {
+                    result = result.TrimEnd() + "\r\n\r\n" + rule.Selector.Trim() + " {\r\n" + rule.Body.Trim() + "\r\n}\r\n";
+                    added++;
+                    continue;
+                }
+
+                var replacement = existing.Selector.Trim() + " {\r\n" + MergeCssBodies(existing.Body, rule.Body) + "\r\n}";
+                result = result.Substring(0, existing.Start) + replacement + result.Substring(existing.End);
+                var delta = replacement.Length - (existing.End - existing.Start);
+                foreach (var later in originalRules.Where(r => r.Start > existing.Start))
+                {
+                    later.Start += delta;
+                    later.End += delta;
+                }
+                changed++;
+            }
+            if (log != null) log("CSS merge materialized for " + relativePath + ": " + changed + " merged, " + added + " added.");
+            return result;
+        }
+
+        private static List<CssRule> ParseCssRules(string css)
+        {
+            var rules = new List<CssRule>();
+            if (string.IsNullOrEmpty(css)) return rules;
+            foreach (Match match in Regex.Matches(css, @"(?s)([^{}]+)\{([^{}]*)\}"))
+            {
+                var selector = match.Groups[1].Value.Trim();
+                if (string.IsNullOrWhiteSpace(selector) || selector.StartsWith("@", StringComparison.Ordinal)) continue;
+                rules.Add(new CssRule { Selector = selector, Body = match.Groups[2].Value, Start = match.Index, End = match.Index + match.Length });
+            }
+            return rules;
+        }
+
+        private static string MergeCssBodies(string existingBody, string mergeBody)
+        {
+            var props = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var order = new List<string>();
+            Action<string> read = body =>
+            {
+                foreach (var raw in (body ?? "").Split(';'))
+                {
+                    var part = raw.Trim();
+                    if (part.Length == 0) continue;
+                    var colon = part.IndexOf(':');
+                    if (colon <= 0) continue;
+                    var name = part.Substring(0, colon).Trim();
+                    var value = part.Substring(colon + 1).Trim();
+                    if (!props.ContainsKey(name)) order.Add(name);
+                    props[name] = value;
+                }
+            };
+            read(existingBody);
+            read(mergeBody);
+            var sb = new StringBuilder();
+            foreach (var name in order)
+                sb.Append("  ").Append(name).Append(": ").Append(props[name]).Append(";\r\n");
+            return sb.ToString().TrimEnd();
+        }
+
+        private static string NormalizeCssSelector(string selector)
+        {
+            return Regex.Replace(selector ?? "", @"\s+", " ").Trim();
         }
 
         private static string DecodeText(byte[] bytes)

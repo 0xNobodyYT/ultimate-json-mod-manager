@@ -31,13 +31,18 @@ namespace CdJsonModManager
                 MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            ResolveFieldFormatMods(selected);
+            var applyCacheDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".cache", "apply_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"));
+            Directory.CreateDirectory(applyCacheDir);
+            ResetFieldResolutions(selected);
+            ResolveFieldFormatMods(selected, applyCacheDir);
+            ResolveEntryAnchoredPatches(selected, applyCacheDir);
             int overlayInstalled = ApplyOverlayPackages(selected);
 
             // Group changes by gameFile across all active mods (using each mod's selected preset).
             // Skip patches the user has unchecked in the patch list (disabledPatches).
             var byGameFile = new Dictionary<string, List<PatchChange>>(StringComparer.OrdinalIgnoreCase);
             int skippedDisabled = 0;
+            int skippedUnresolved = 0;
             foreach (var mod in selected)
             {
                 if (mod.FormatTag == "RAW" || mod.FormatTag == "BROWSER") continue;
@@ -48,13 +53,20 @@ namespace CdJsonModManager
                     var key = PatchKey(mod, group, idx);
                     idx++;
                     if (string.IsNullOrEmpty(c.GameFile)) continue;
-                    if (!c.IsResolvedBytes) { skippedDisabled++; Log("Skipped unresolved field-format intent [" + mod.Name + "]: " + c.Label); continue; }
+                    if (!c.IsResolvedBytes)
+                    {
+                        skippedUnresolved++;
+                        var reason = string.IsNullOrWhiteSpace(c.ResolveError) ? "" : " (" + c.ResolveError + ")";
+                        Log("Skipped unresolved patch [" + mod.Name + "]: " + c.Label + reason);
+                        continue;
+                    }
                     if (disabledPatches.Contains(key)) { skippedDisabled++; continue; }
                     if (!byGameFile.ContainsKey(c.GameFile)) byGameFile[c.GameFile] = new List<PatchChange>();
                     byGameFile[c.GameFile].Add(c);
                 }
             }
-            if (skippedDisabled > 0) Log("Skipped " + skippedDisabled + " patch(es) the user disabled in the Patch Board.");
+            if (skippedUnresolved > 0) Log("Skipped " + skippedUnresolved + " unresolved patch(es).");
+            if (skippedDisabled > 0) Log("Skipped " + skippedDisabled + " patch(es) disabled in the Patch Board.");
             if (byGameFile.Count == 0)
             {
                 if (overlayInstalled > 0)
@@ -181,13 +193,55 @@ namespace CdJsonModManager
                                 decompressed = originalBytes;
                             }
 
-                            // Apply patches
+                            // Apply patches. Replacements are guard-checked in-place; inserts are
+                            // queued and materialized from high offset to low offset so earlier
+                            // offsets remain stable.
                             int applied = 0, mismatch = 0;
+                            var inserts = new List<Tuple<int, byte[], string>>();
                             foreach (var c in w.Changes)
                             {
                                 var orig = HexToBytes(c.Original);
                                 var patched = HexToBytes(c.Patched);
-                                if (c.Offset < 0 || c.Offset + orig.Length > decompressed.Length)
+                                if (c.IsInsert)
+                                {
+                                    if ((w.Entry.Path ?? "").EndsWith(".pabgb", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        mismatch++;
+                                        Log("Skipped insert in " + w.Entry.Path + " because entry-table inserts require companion .pabgh offset rewrites.");
+                                        continue;
+                                    }
+                                    if (patched.Length == 0)
+                                    {
+                                        mismatch++;
+                                        Log("Empty insert: " + c.Label);
+                                        continue;
+                                    }
+                                    if (c.Offset < 0 || c.Offset > decompressed.Length || (orig.Length > 0 && c.Offset + orig.Length > decompressed.Length))
+                                    {
+                                        mismatch++;
+                                        Log("Out of range: " + c.Label);
+                                        continue;
+                                    }
+                                    if (orig.Length > 0)
+                                    {
+                                        bool insertGuardMatches = true;
+                                        for (int i = 0; i < orig.Length; i++)
+                                        {
+                                            if (decompressed[c.Offset + i] != orig[i]) { insertGuardMatches = false; break; }
+                                        }
+                                        if (!insertGuardMatches)
+                                        {
+                                            mismatch++;
+                                            Log("Byte mismatch: " + c.Label);
+                                            continue;
+                                        }
+                                    }
+                                    inserts.Add(Tuple.Create(c.Offset, patched, c.Label));
+                                    applied++;
+                                    continue;
+                                }
+
+                                if (c.Offset < 0 || c.Offset + orig.Length > decompressed.Length || c.Offset + patched.Length > decompressed.Length)
                                 {
                                     mismatch++;
                                     Log("Out of range: " + c.Label);
@@ -214,6 +268,15 @@ namespace CdJsonModManager
                                 }
                                 Buffer.BlockCopy(patched, 0, decompressed, c.Offset, patched.Length);
                                 applied++;
+                            }
+                            foreach (var insert in inserts.OrderByDescending(i => i.Item1))
+                            {
+                                var next = new byte[decompressed.Length + insert.Item2.Length];
+                                Buffer.BlockCopy(decompressed, 0, next, 0, insert.Item1);
+                                Buffer.BlockCopy(insert.Item2, 0, next, insert.Item1, insert.Item2.Length);
+                                Buffer.BlockCopy(decompressed, insert.Item1, next, insert.Item1 + insert.Item2.Length, decompressed.Length - insert.Item1);
+                                decompressed = next;
+                                Log("Inserted " + insert.Item2.Length + " byte(s): " + insert.Item3);
                             }
                             if (applied == 0)
                             {
@@ -255,17 +318,32 @@ namespace CdJsonModManager
                             fileSkipped++;
                         }
                     }
-                    // Pad paz file end to 16-byte alignment so the recorded size matches engine expectations.
-                    paz.Seek(0, SeekOrigin.End);
-                    long finalEnd = paz.Position;
-                    int finalPad = (int)((16 - (finalEnd % 16)) % 16);
-                    if (finalPad > 0)
+                    if (pazGroup.Any(w => w.Succeeded))
                     {
-                        paz.Write(new byte[finalPad], 0, finalPad);
-                        Log("Padded " + Path.GetFileName(pazFile) + " end with " + finalPad + " bytes for 16-byte alignment.");
+                        // Pad paz file end to 16-byte alignment so the recorded size matches engine expectations.
+                        paz.Seek(0, SeekOrigin.End);
+                        long finalEnd = paz.Position;
+                        int finalPad = (int)((16 - (finalEnd % 16)) % 16);
+                        if (finalPad > 0)
+                        {
+                            paz.Write(new byte[finalPad], 0, finalPad);
+                            Log("Padded " + Path.GetFileName(pazFile) + " end with " + finalPad + " bytes for 16-byte alignment.");
+                        }
                     }
                     paz.Flush();
                 }
+            }
+
+            if (totalApplied == 0)
+            {
+                WriteRestoreGuardManifest("apply-no-byte-patches");
+                MessageBox.Show(
+                    "No byte patches were applied.\r\n\r\n" +
+                    (totalMismatch > 0 ? totalMismatch + " patch(es) failed byte checks. See the log for details.\r\n" : "") +
+                    (fileSkipped > 0 ? fileSkipped + " file(s) were skipped.\r\n" : "") +
+                    "UJMM did not rewrite the PAMT/PAPGT metadata for byte patches.",
+                    "Nothing applied", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
 
             // Patch PAMT in memory - surgical 16-byte edit per entry (skip nodeRef, write pazOffset/compSize/origSize/flags)
