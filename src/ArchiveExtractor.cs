@@ -20,46 +20,97 @@ namespace CdJsonModManager
     internal static class ArchiveExtractor
     {
         // ============================================================
-        // LZ4 block encoder (all-literals form).
+        // LZ4 block encoder.
         //
-        // Produces a valid LZ4 block per the Block Format spec: the entire
-        // input is emitted as one literal-only sequence (one token byte +
-        // optional extra-length bytes + literal bytes; no match section).
-        // The existing Lz4BlockDecompress accepts this - when the decoder
-        // exhausts input after consuming literals it stops cleanly.
-        //
-        // Cost: ~3-bytes-per-65KB overhead vs the input size. We pay that
-        // overhead for simplicity - implementing a real LZ4 matcher buys
-        // smaller output but matches our constraints already (we append
-        // to .paz, so file growth doesn't shift any other entries).
+        // Crimson Desert accepts normal LZ4 block payloads for generated
+        // overlays. A literal-only block is technically valid, but encrypted
+        // overlay files have proven less tolerant in the game loader, so this
+        // emits real match sequences compatible with common LZ4 libraries.
         // ============================================================
         public static byte[] Lz4BlockCompress(byte[] data)
         {
             if (data == null) data = new byte[0];
             int len = data.Length;
-            var output = new List<byte>(len + 8);
-            if (len == 0)
+            if (len == 0) return new byte[] { 0x00 };
+
+            var output = new List<byte>(Math.Max(16, len / 2));
+            var hash = new int[1 << 16];
+            for (int n = 0; n < hash.Length; n++) hash[n] = -1;
+
+            int anchor = 0;
+            int i = 0;
+            int matchLimit = len - 12;
+            while (i <= matchLimit)
             {
-                output.Add(0x00);
-                return output.ToArray();
-            }
-            if (len < 15)
-            {
-                output.Add((byte)(len << 4));
-            }
-            else
-            {
-                output.Add(0xF0); // literal-length code = 15 -> read extra bytes
-                int remaining = len - 15;
-                while (remaining >= 255)
+                uint sequence = ReadU32(data, i);
+                int h = (int)(((sequence * 2654435761u) >> 16) & 0xFFFF);
+                int match = hash[h];
+                hash[h] = i;
+
+                if (match >= 0 && i - match <= 0xFFFF && ReadU32(data, match) == sequence)
                 {
-                    output.Add(255);
-                    remaining -= 255;
+                    int tokenIndex = output.Count;
+                    output.Add(0);
+
+                    int literalLength = i - anchor;
+                    int token = Math.Min(literalLength, 15) << 4;
+                    if (literalLength >= 15) WriteLength(output, literalLength - 15);
+                    for (int p = anchor; p < i; p++) output.Add(data[p]);
+
+                    int offset = i - match;
+                    output.Add((byte)(offset & 0xFF));
+                    output.Add((byte)((offset >> 8) & 0xFF));
+
+                    i += 4;
+                    match += 4;
+                    int matchLength = 4;
+                    while (i < len && data[i] == data[match])
+                    {
+                        i++;
+                        match++;
+                        matchLength++;
+                    }
+
+                    int encodedMatchLength = matchLength - 4;
+                    token |= Math.Min(encodedMatchLength, 15);
+                    output[tokenIndex] = (byte)token;
+                    if (encodedMatchLength >= 15) WriteLength(output, encodedMatchLength - 15);
+
+                    anchor = i;
+                    continue;
                 }
-                output.Add((byte)remaining);
+
+                i++;
             }
-            output.AddRange(data);
+
+            WriteLastLiterals(output, data, anchor, len - anchor);
             return output.ToArray();
+        }
+
+        private static uint ReadU32(byte[] data, int offset)
+        {
+            return (uint)(data[offset]
+                | (data[offset + 1] << 8)
+                | (data[offset + 2] << 16)
+                | (data[offset + 3] << 24));
+        }
+
+        private static void WriteLength(List<byte> output, int length)
+        {
+            while (length >= 255)
+            {
+                output.Add(255);
+                length -= 255;
+            }
+            output.Add((byte)length);
+        }
+
+        private static void WriteLastLiterals(List<byte> output, byte[] data, int start, int length)
+        {
+            int token = Math.Min(length, 15) << 4;
+            output.Add((byte)token);
+            if (length >= 15) WriteLength(output, length - 15);
+            for (int p = start; p < start + length; p++) output.Add(data[p]);
         }
 
         public static byte[] Lz4BlockDecompressPublic(byte[] data, uint originalSize)
