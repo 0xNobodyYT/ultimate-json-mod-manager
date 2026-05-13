@@ -19,8 +19,8 @@ using System.Xml.XPath;
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.3.5.0")]
-[assembly: AssemblyVersion("1.3.5.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
 
 namespace CdJsonModManager
 {
@@ -31,7 +31,7 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.3.5";
+        public const string AppVersion = "1.4";
         public const string NexusGameDomain = "crimsondesert";
         public const int NexusAppModId = 2454;
         public const string NexusAppPageUrl = "https://www.nexusmods.com/crimsondesert/mods/2454";
@@ -2749,7 +2749,7 @@ namespace CdJsonModManager
                     if (nexusLinks.ContainsKey(capturedMod.Path))
                     {
                         var nl = nexusLinks[capturedMod.Path];
-                        SafeOpenUrl("https://www.nexusmods.com/" + Program.NexusGameDomain + "/mods/" + nl.ModId);
+                        SafeOpenUrl(nl.UpdateAvailable ? NexusModFilesUrl(nl.ModId) : NexusModPageUrl(nl.ModId));
                     }
                 };
 
@@ -2784,7 +2784,12 @@ namespace CdJsonModManager
                     menu.Items.Add("Open on Nexus", null, (s, e) =>
                     {
                         if (nexusLinks.ContainsKey(capturedMod.Path))
-                            SafeOpenUrl("https://www.nexusmods.com/" + Program.NexusGameDomain + "/mods/" + nexusLinks[capturedMod.Path].ModId);
+                            SafeOpenUrl(NexusModPageUrl(nexusLinks[capturedMod.Path].ModId));
+                    });
+                    menu.Items.Add("Open Nexus Files", null, (s, e) =>
+                    {
+                        if (nexusLinks.ContainsKey(capturedMod.Path))
+                            SafeOpenUrl(NexusModFilesUrl(nexusLinks[capturedMod.Path].ModId));
                     });
                     menu.Items.Add("Unlink from Nexus", null, (s, e) =>
                     {
@@ -2935,15 +2940,29 @@ namespace CdJsonModManager
                 pill.Text = "UPDATE";
                 pill.PillFillColor = Color.FromArgb(216, 92, 76);
                 pill.PillTextColor = Color.White;
+                pill.Cursor = Cursors.Hand;
+                tipsHost.SetToolTip(pill, "Update available. Click to open this mod's Nexus files page.");
             }
             else
             {
                 pill.Text = "v" + (string.IsNullOrEmpty(link.InstalledVersion) ? "?" : link.InstalledVersion);
                 pill.PillFillColor = Color.FromArgb(101, 197, 134);
                 pill.PillTextColor = Color.FromArgb(8, 19, 13);
+                pill.Cursor = Cursors.Hand;
+                tipsHost.SetToolTip(pill, "Linked to Nexus. Click to open the mod page.");
             }
             pill.Width = 0;
             pill.Invalidate();
+        }
+
+        private static string NexusModPageUrl(int modId)
+        {
+            return "https://www.nexusmods.com/" + Program.NexusGameDomain + "/mods/" + modId;
+        }
+
+        private static string NexusModFilesUrl(int modId)
+        {
+            return NexusModPageUrl(modId) + "?tab=files";
         }
 
         private static void ApplyFormatPillStyle(Pill pill, string tag)
