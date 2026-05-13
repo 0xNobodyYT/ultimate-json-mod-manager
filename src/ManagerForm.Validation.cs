@@ -50,14 +50,27 @@ namespace CdJsonModManager
                 {
                     foreach (var folder in OverlayFoldersForGroup(mod, GroupFor(mod)))
                     {
-                        var files = OverlayFiles(folder).Where(File.Exists).ToList();
+                        var files = OverlayFiles(folder).Where(File.Exists).Where(file => !IsPackageMetadataFile(folder, file)).ToList();
                         if (files.Count == 0)
                         {
                             issues.Add("EMPTY OVERLAY [" + mod.Name + "] " + Path.GetFileName(folder));
                             continue;
                         }
+                        var looseOverlay = !IsCompiledOverlayFolder(folder);
+                        var resolver = looseOverlay ? new GameVfsResolver(gamePath) : null;
+                        var preferredGroup = PreferredOverlaySourceGroup(folder);
                         foreach (var file in files)
                         {
+                            if (looseOverlay)
+                            {
+                                var rel = file.Substring(folder.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
+                                rel = NormalizeOverlayPatchOutputPath(rel);
+                                var match = resolver.Resolve(rel, preferredGroup);
+                                if (match == null && (rel.EndsWith(".patch", StringComparison.OrdinalIgnoreCase) || rel.EndsWith(".merge", StringComparison.OrdinalIgnoreCase)))
+                                    issues.Add("Missing overlay merge source [" + mod.Name + "] " + rel);
+                                else if (match != null && match.Corrected)
+                                    Log("Overlay path would be corrected: " + rel + " -> " + match.Entry.Path + " (" + match.GroupName + ").");
+                            }
                             overlayChecked++;
                             checkedCount++;
                         }

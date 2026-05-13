@@ -746,65 +746,59 @@ namespace CdJsonModManager
             var existing = Locate(cacheDir, gameFile);
             if (existing != null) return existing;
 
-            var pamt = Path.Combine(gamePath, "0008", "0.pamt");
-            var pazDir = Path.Combine(gamePath, "0008");
-            var basename = Path.GetFileName(gameFile).ToLowerInvariant();
-            List<PazEntry> entries;
+            GameVfsMatch match = null;
             try
             {
-                entries = ParsePamt(pamt, pazDir);
+                match = new GameVfsResolver(gamePath).Resolve(gameFile, "0008");
             }
             catch (Exception ex)
             {
-                log("Could not parse archive index: " + ex.Message);
-                return null;
+                log("Could not scan archive index: " + ex.Message);
             }
 
-            var matches = entries.Where(entry => entry.Path.ToLowerInvariant().Contains(basename)).ToList();
-            if (matches.Count == 0)
+            if (match == null)
             {
                 log("No archive entry matched " + gameFile + ".");
                 return null;
             }
 
-            foreach (var entry in matches)
+            if (match.Corrected && log != null)
+                log("Resolved " + gameFile + " -> " + match.Entry.Path + " (" + match.GroupName + ").");
+
+            var entry = match.Entry;
+            try
             {
-                try
+                var readSize = entry.Compressed ? entry.CompSize : entry.OrigSize;
+                byte[] blob;
+                using (var stream = File.OpenRead(entry.PazFile))
                 {
-                    var readSize = entry.Compressed ? entry.CompSize : entry.OrigSize;
-                    byte[] blob;
-                    using (var stream = File.OpenRead(entry.PazFile))
-                    {
-                        stream.Seek(entry.Offset, SeekOrigin.Begin);
-                        blob = new byte[readSize];
-                        stream.Read(blob, 0, blob.Length);
-                    }
-
-                    if (entry.Path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
-                    {
-                        log("Skipping encrypted XML extraction for " + entry.Path + ".");
-                        continue;
-                    }
-
-                    if (entry.Compressed)
-                    {
-                        if (entry.CompressionType != 2)
-                        {
-                            log("Skipping unsupported compression type for " + entry.Path + ": " + entry.CompressionType);
-                            continue;
-                        }
-                        blob = Lz4BlockDecompress(blob, entry.OrigSize);
-                    }
-
-                    var target = Path.Combine(cacheDir, entry.Path.Replace('/', Path.DirectorySeparatorChar));
-                    Directory.CreateDirectory(Path.GetDirectoryName(target));
-                    File.WriteAllBytes(target, blob);
-                    log("Extracted: " + target);
+                    stream.Seek(entry.Offset, SeekOrigin.Begin);
+                    blob = new byte[readSize];
+                    stream.Read(blob, 0, blob.Length);
                 }
-                catch (Exception ex)
+
+                if (entry.EncryptionType == 3)
+                    blob = CryptChaCha20ByFileName(blob, Path.GetFileName(entry.Path));
+
+                if (entry.Compressed)
                 {
-                    log("Could not extract " + entry.Path + ": " + ex.Message);
+                    if (entry.CompressionType != 2)
+                    {
+                        log("Skipping unsupported compression type for " + entry.Path + ": " + entry.CompressionType);
+                        return null;
+                    }
+                    blob = Lz4BlockDecompress(blob, entry.OrigSize);
                 }
+
+                var target = Path.Combine(cacheDir, entry.Path.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(target));
+                File.WriteAllBytes(target, blob);
+                log("Extracted: " + target);
+            }
+            catch (Exception ex)
+            {
+                log("Could not extract " + entry.Path + ": " + ex.Message);
+                return null;
             }
 
             return Locate(cacheDir, gameFile);

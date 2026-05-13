@@ -95,12 +95,16 @@ namespace CdJsonModManager
             public PazEntry Entry;
             public byte[] Data;
             public string GroupName;
+            public string ResolvedPath;
+            public string RequestedPath;
+            public bool Corrected;
         }
 
         private sealed class OverlayOriginalIndex
         {
             private readonly string gameRoot;
             private readonly string preferredGroupName;
+            private readonly GameVfsResolver resolver;
             private readonly Dictionary<string, PamtParseResult> pamtCache = new Dictionary<string, PamtParseResult>(StringComparer.OrdinalIgnoreCase);
             private List<string> groupNames;
 
@@ -108,24 +112,14 @@ namespace CdJsonModManager
             {
                 this.gameRoot = gameRoot;
                 this.preferredGroupName = preferredGroupName ?? "";
+                this.resolver = new GameVfsResolver(gameRoot);
             }
 
             public OverlayOriginal Find(string relativePath)
             {
                 if (string.IsNullOrWhiteSpace(gameRoot) || string.IsNullOrWhiteSpace(relativePath)) return null;
-                if (!string.IsNullOrWhiteSpace(preferredGroupName))
-                {
-                    var found = TryExtractFromGroup(preferredGroupName, relativePath);
-                    if (found != null) return found;
-                }
-
-                foreach (var groupName in GetGroupNames())
-                {
-                    if (string.Equals(groupName, preferredGroupName, StringComparison.OrdinalIgnoreCase)) continue;
-                    var found = TryExtractFromGroup(groupName, relativePath);
-                    if (found != null) return found;
-                }
-                return null;
+                var match = resolver.Resolve(relativePath, preferredGroupName);
+                return match == null ? null : TryExtractMatch(match);
             }
 
             private IEnumerable<string> GetGroupNames()
@@ -182,9 +176,42 @@ namespace CdJsonModManager
                         var got = fs.Read(blob, 0, blob.Length);
                         if (got != blob.Length) return null;
                         if (entry.EncryptionType == 3) blob = ArchiveExtractor.CryptChaCha20ByFileName(blob, Path.GetFileName(entry.Path));
-                        if (entry.CompressionType == 2) return new OverlayOriginal { Entry = entry, Data = ArchiveExtractor.Lz4BlockDecompressPublic(blob, entry.OrigSize), GroupName = groupName };
-                        if (entry.CompressionType == 0 || entry.CompSize == entry.OrigSize) return new OverlayOriginal { Entry = entry, Data = blob, GroupName = groupName };
+                        if (entry.CompressionType == 2) return new OverlayOriginal { Entry = entry, Data = ArchiveExtractor.Lz4BlockDecompressPublic(blob, entry.OrigSize), GroupName = groupName, ResolvedPath = entry.Path };
+                        if (entry.CompressionType == 0 || entry.CompSize == entry.OrigSize) return new OverlayOriginal { Entry = entry, Data = blob, GroupName = groupName, ResolvedPath = entry.Path };
                         return null;
+                    }
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            private OverlayOriginal TryExtractMatch(GameVfsMatch match)
+            {
+                if (match == null || match.Entry == null || !File.Exists(match.Entry.PazFile)) return null;
+                try
+                {
+                    var entry = match.Entry;
+                    using (var fs = File.OpenRead(entry.PazFile))
+                    {
+                        fs.Seek(entry.Offset, SeekOrigin.Begin);
+                        var blob = new byte[entry.CompSize];
+                        var got = fs.Read(blob, 0, blob.Length);
+                        if (got != blob.Length) return null;
+                        if (entry.EncryptionType == 3) blob = ArchiveExtractor.CryptChaCha20ByFileName(blob, Path.GetFileName(entry.Path));
+                        if (entry.CompressionType == 2) blob = ArchiveExtractor.Lz4BlockDecompressPublic(blob, entry.OrigSize);
+                        else if (entry.CompressionType != 0 && entry.CompSize != entry.OrigSize) return null;
+
+                        return new OverlayOriginal
+                        {
+                            Entry = entry,
+                            Data = blob,
+                            GroupName = match.GroupName,
+                            ResolvedPath = entry.Path,
+                            RequestedPath = match.RequestedPath,
+                            Corrected = match.Corrected
+                        };
                     }
                 }
                 catch
@@ -230,6 +257,13 @@ namespace CdJsonModManager
             foreach (var file in files)
             {
                 var original = originalIndex.Find(file.RelativePath);
+                if (original != null && original.Corrected && !string.Equals(GameVfsResolver.Normalize(file.RelativePath), GameVfsResolver.Normalize(original.ResolvedPath), StringComparison.OrdinalIgnoreCase))
+                {
+                    if (log != null) log("Overlay path corrected: " + file.RelativePath + " -> " + original.ResolvedPath + " (" + original.GroupName + ").");
+                    file.RelativePath = original.ResolvedPath.Replace('\\', '/');
+                    file.DirectoryPath = NormalizeOverlayDirectory(Path.GetDirectoryName(file.RelativePath) ?? "");
+                    file.FileName = Path.GetFileName(file.RelativePath);
+                }
                 var raw = BuildLooseOverlayFileBytes(sourceFolder, file.SourcePath, file.RelativePath, gameRoot, original, log);
                 file.OriginalSize = checked((uint)raw.Length);
                 file.PackedBytes = ArchiveExtractor.Lz4BlockCompress(raw);
