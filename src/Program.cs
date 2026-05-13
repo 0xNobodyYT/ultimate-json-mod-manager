@@ -2013,6 +2013,15 @@ namespace CdJsonModManager
                                 updatePill.DotColor = Color.FromArgb(244, 199, 103);
                                 updatePill.Visible = true;
                             }
+                            if (statusBuildPill != null)
+                            {
+                                statusBuildPill.Text = "Update " + info.TagName.TrimStart('v', 'V');
+                                statusBuildPill.DotColor = Color.FromArgb(244, 199, 103);
+                                statusBuildPill.PillFillColor = Color.FromArgb(80, 244, 199, 103);
+                                statusBuildPill.PillTextColor = Color.FromArgb(255, 236, 184);
+                                statusBuildPill.Invalidate();
+                                tipsHost.SetToolTip(statusBuildPill, "Update available - click to open the UJMM Nexus files page.");
+                            }
                             Log("Update available: " + info.TagName + " (you're on " + Program.AppVersion + ")");
                         }));
                     }
