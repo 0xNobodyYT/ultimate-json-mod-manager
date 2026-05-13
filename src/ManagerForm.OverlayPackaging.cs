@@ -35,11 +35,12 @@ namespace CdJsonModManager
                 foreach (var sourceFolder in OverlayFoldersForGroup(mod, GroupFor(mod)))
                 {
                     if (!Directory.Exists(sourceFolder)) continue;
-                    var wanted = Path.GetFileName(sourceFolder);
+                    var isCompiledOverlay = IsCompiledOverlayFolder(sourceFolder);
+                    var wanted = isCompiledOverlay ? Path.GetFileName(sourceFolder) : "0036";
                     var slot = NextOverlaySlot(wanted);
                     var target = Path.Combine(gamePath, slot);
                     bool packedLooseOverlay = false;
-                    if (IsCompiledOverlayFolder(sourceFolder))
+                    if (isCompiledOverlay)
                     {
                         CopyDirectory(sourceFolder, target);
                     }
