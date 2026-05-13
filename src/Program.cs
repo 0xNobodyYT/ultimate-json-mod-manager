@@ -4449,7 +4449,7 @@ namespace CdJsonModManager
             {
                 "character", "ui", "gamedata", "gamecommondata", "sound", "audio", "music",
                 "effect", "texture", "font", "localization", "script", "datasheet", "world",
-                "level", "prefab"
+                "level", "prefab", "sequencer"
             };
             return knownRoots.Any(root => string.Equals(root, rootName, StringComparison.OrdinalIgnoreCase));
         }
@@ -8310,7 +8310,7 @@ namespace CdJsonModManager
             {
                 "character", "ui", "gamedata", "gamecommondata", "sound", "audio", "music",
                 "effect", "texture", "font", "localization", "script", "datasheet", "world",
-                "level", "prefab"
+                "level", "prefab", "sequencer"
             };
             return knownRoots.Any(root => string.Equals(root, rootName, StringComparison.OrdinalIgnoreCase));
         }
