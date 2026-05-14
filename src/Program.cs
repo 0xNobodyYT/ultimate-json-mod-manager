@@ -9,6 +9,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using System.Xml;
@@ -19,8 +20,8 @@ using System.Xml.XPath;
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.5.1.0")]
-[assembly: AssemblyVersion("1.5.1.0")]
+[assembly: AssemblyFileVersion("1.5.2.0")]
+[assembly: AssemblyVersion("1.5.2.0")]
 
 namespace CdJsonModManager
 {
@@ -31,7 +32,7 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.5.1";
+        public const string AppVersion = "1.5.2";
         public const string NexusGameDomain = "crimsondesert";
         public const int NexusAppModId = 2454;
         public const string NexusAppPageUrl = "https://www.nexusmods.com/crimsondesert/mods/2454";
@@ -153,6 +154,7 @@ namespace CdJsonModManager
         private Label nexusRateLabel;
         private string gamePath;
         private Theme currentTheme;
+        private bool operationRunning;
 
         private string pendingNxmUrl;
 
@@ -219,7 +221,18 @@ namespace CdJsonModManager
 
         private void ApplyOverlayStub()
         {
-            ApplyByPazAppend();
+            if (!IsGameFolder(gamePath))
+            {
+                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            var selected = mods.Where(m => activeBoxes.ContainsKey(m.Path) && activeBoxes[m.Path].Checked).ToList();
+            if (selected.Count == 0)
+            {
+                MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            RunBackgroundOperation(() => ApplyByPazAppend(selected), "Applying " + selected.Count + " mod(s)...");
         }
 
         private void OpenFolder(string path)
@@ -232,7 +245,59 @@ namespace CdJsonModManager
         {
             CrashReporter.RecordLog(message);
             if (logBox == null) return;
+            if (logBox.InvokeRequired)
+            {
+                try { logBox.BeginInvoke(new Action<string>(Log), message); } catch { }
+                return;
+            }
             logBox.AppendText(message + Environment.NewLine);
+        }
+
+        private void RunBackgroundOperation(Action work, string label)
+        {
+            if (operationRunning)
+            {
+                MessageBox.Show("UJMM is already working. Please wait for the current operation to finish.", "Busy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            operationRunning = true;
+            var oldCursor = Cursor.Current;
+            Cursor.Current = Cursors.WaitCursor;
+            Log(label);
+            Task.Run(() =>
+            {
+                try
+                {
+                    work();
+                }
+                catch (Exception ex)
+                {
+                    Log("Operation failed: " + ex.Message);
+                    try
+                    {
+                        BeginInvoke(new Action(() =>
+                            MessageBox.Show("Operation failed:\r\n\r\n" + ex.Message, "UJMM", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                    }
+                    catch { }
+                }
+                finally
+                {
+                    try
+                    {
+                        BeginInvoke(new Action(() =>
+                        {
+                            operationRunning = false;
+                            Cursor.Current = oldCursor;
+                            UpdateStatusPills();
+                            UpdateBottomSummary();
+                        }));
+                    }
+                    catch
+                    {
+                        operationRunning = false;
+                    }
+                }
+            });
         }
 
         private static byte[] HexToBytes(string hex)

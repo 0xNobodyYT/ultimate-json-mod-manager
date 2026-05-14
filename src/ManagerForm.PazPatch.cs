@@ -31,6 +31,21 @@ namespace CdJsonModManager
                 MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+            ApplyByPazAppend(selected);
+        }
+
+        private void ApplyByPazAppend(List<JsonMod> selected)
+        {
+            if (!IsGameFolder(gamePath))
+            {
+                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (selected.Count == 0)
+            {
+                MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             var applyCacheDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".cache", "apply_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"));
             Directory.CreateDirectory(applyCacheDir);
             ResetFieldResolutions(selected);
@@ -423,7 +438,6 @@ namespace CdJsonModManager
                 int crcOffset = 12 + pazIdx * 12 + 4;
                 if (crcOffset + 4 > pamtNew.Length) continue;
                 Log("Computing PaChecksum of " + name + " (" + new FileInfo(pazFile).Length + " bytes)...");
-                Application.DoEvents();
                 uint pazCrc = ArchiveExtractor.PaChecksumFile(pazFile);
                 ArchiveExtractor.WriteU32LE(pamtNew, crcOffset, pazCrc);
                 Log("PAMT row[" + pazIdx + "] Crc -> 0x" + pazCrc.ToString("X8"));
