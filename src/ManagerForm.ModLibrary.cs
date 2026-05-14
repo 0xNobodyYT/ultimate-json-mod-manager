@@ -1178,11 +1178,12 @@ namespace CdJsonModManager
             // Revert in priority order: real paz/pamt apply first, then any legacy loose-file writes.
             try { RevertPazAppend(); } catch (Exception ex) { Log("Paz/pamt revert: " + ex.Message); }
             try { RevertLooseFileApply(); } catch (Exception ex) { Log("Loose-file revert: " + ex.Message); }
+            var activeCount = activeBoxes.Values.Count(box => box.Checked);
             foreach (var box in activeBoxes.Values)
             {
                 box.Checked = false;
             }
-            Log("Uninstalled/deactivated all active JSON mods.");
+            Log(activeCount > 0 ? "Uninstalled/deactivated " + activeCount + " active JSON mod(s)." : "No active JSON mods to deactivate.");
         }
 
         private void UpdateStatusPills()

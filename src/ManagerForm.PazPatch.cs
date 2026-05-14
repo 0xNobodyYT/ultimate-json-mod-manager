@@ -512,6 +512,11 @@ namespace CdJsonModManager
             if (!IsGameFolder(gamePath)) return;
             var backupRoot = PazBackupsRoot();
             if (!Directory.Exists(backupRoot)) return;
+            if (!HasPendingPazRestorePayload(backupRoot))
+            {
+                Log("Restore skipped: game is already at the saved backup state.");
+                return;
+            }
             if (!ValidateRestoreGuard()) return;
 
             // Restore PAMT
@@ -591,19 +596,63 @@ namespace CdJsonModManager
                 catch (Exception ex) { Log("Truncate failed for " + lengthFile + ": " + ex.Message); }
             }
 
-            // Clean up the backup markers so subsequent applies create fresh ones
+            // Keep the clean backup baseline. Only remove transient overlay markers,
+            // then refresh the guard so repeated Restore clicks are harmless.
             try
             {
-                if (File.Exists(pamtBackup)) File.Delete(pamtBackup);
-                if (File.Exists(papgtBackupRevert)) File.Delete(papgtBackupRevert);
                 if (File.Exists(overlayMarker)) File.Delete(overlayMarker);
-                foreach (var lf in Directory.GetFiles(backupRoot, "*.length.original")) File.Delete(lf);
-                var guard = RestoreGuardManifestPath();
-                if (!string.IsNullOrEmpty(guard) && File.Exists(guard)) File.Delete(guard);
+                WriteRestoreGuardManifest("post-restore-clean-backup");
             }
             catch { }
 
             if (restored > 0) Log("Apply reverted: " + restored + " archive(s) restored to pre-apply state.");
+        }
+
+        private bool HasPendingPazRestorePayload(string backupRoot)
+        {
+            if (string.IsNullOrWhiteSpace(backupRoot) || !Directory.Exists(backupRoot)) return false;
+
+            var overlayMarker = Path.GetFullPath(Path.Combine(backupRoot, "..", "overlay_folders.txt"));
+            if (File.Exists(overlayMarker))
+            {
+                foreach (var slot in File.ReadAllLines(overlayMarker).Select(s => s.Trim()).Where(s => Regex.IsMatch(s, @"^\d{4}$")).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    if (Directory.Exists(Path.Combine(gamePath, slot))) return true;
+                }
+            }
+
+            var pamtBackup = Path.Combine(backupRoot, "0.pamt.original");
+            var pamtLive = Path.Combine(gamePath, "0008", "0.pamt");
+            if (File.Exists(pamtBackup) && File.Exists(pamtLive)
+                && !string.Equals(Sha256File(pamtBackup), Sha256File(pamtLive), StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var papgtBackup = Path.GetFullPath(Path.Combine(backupRoot, "..", "0.papgt.original"));
+            var papgtLive = Path.Combine(gamePath, "meta", "0.papgt");
+            if (File.Exists(papgtBackup) && File.Exists(papgtLive)
+                && !string.Equals(Sha256File(papgtBackup), Sha256File(papgtLive), StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            foreach (var lengthFile in Directory.GetFiles(backupRoot, "*.length.original"))
+            {
+                try
+                {
+                    var pazName = Path.GetFileName(lengthFile);
+                    pazName = pazName.Substring(0, pazName.Length - ".length.original".Length);
+                    var pazLive = Path.Combine(gamePath, "0008", pazName);
+                    if (!File.Exists(pazLive)) return true;
+                    long origLen;
+                    if (!long.TryParse(File.ReadAllText(lengthFile).Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out origLen))
+                        return true;
+                    if (new FileInfo(pazLive).Length != origLen) return true;
+                }
+                catch
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         // Legacy loose-file probe - kept for any orphaned probe writes from earlier sessions.
