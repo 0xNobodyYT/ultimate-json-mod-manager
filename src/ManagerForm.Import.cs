@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -34,7 +34,7 @@ namespace CdJsonModManager
             var path = NormalizeGameFolderInput(gamePathText.Text);
             if (!IsGameFolder(path))
             {
-                MessageBox.Show("Choose the Crimson Desert folder that contains bin64 and 0008.\r\n\r\nLinux/Wine users can paste the full path manually, including dot folders such as ~/.steam.", "Invalid folder", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Choose the Crimson Desert folder that contains bin64 and 0008.\r\n\r\nLinux/Wine users can paste the full path manually, including dot folders such as ~/.steam.", "Invalid folder", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             gamePath = path;
@@ -664,7 +664,7 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -772,7 +772,7 @@ namespace CdJsonModManager
 
             var names = string.Join("\r\n", selected.Take(8).Select(path => "  * " + Path.GetFileName(path)).ToArray());
             if (selected.Count > 8) names += "\r\n  ...";
-            var answer = MessageBox.Show("Remove " + selected.Count + " ASI/DLL/INI file" + (selected.Count == 1 ? "" : "s") + "?\r\n\r\n" + names + "\r\n\r\nThis deletes the selected runtime mod file(s) from bin64 and UJMM's _asi copy when present.", "Remove ASI mod", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            var answer = UiSafe.Msg("Remove " + selected.Count + " ASI/DLL/INI file" + (selected.Count == 1 ? "" : "s") + "?\r\n\r\n" + names + "\r\n\r\nThis deletes the selected runtime mod file(s) from bin64 and UJMM's _asi copy when present.", "Remove ASI mod", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (answer != DialogResult.Yes) return;
 
             foreach (var path in selected)

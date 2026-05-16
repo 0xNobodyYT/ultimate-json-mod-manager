@@ -179,7 +179,7 @@ namespace CdJsonModManager
             }
             catch
             {
-                MessageBox.Show("The app encountered an unexpected error.\r\nA crash dump was saved to: " + crashPath, "Unexpected Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("The app encountered an unexpected error.\r\nA crash dump was saved to: " + crashPath, "Unexpected Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -365,7 +365,7 @@ namespace CdJsonModManager
                 }
                 catch (Exception openErr)
                 {
-                    MessageBox.Show("Could not open GitHub: " + openErr.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    UiSafe.Msg("Could not open GitHub: " + openErr.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 Close();
             };

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -47,7 +47,7 @@ namespace CdJsonModManager
             var topGap = new Panel { Dock = DockStyle.Top, Height = 6, BackColor = Color.Transparent };
             Controls.Add(topGap);
 
-            var mainGrid = new TableLayoutPanel
+            mainGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 3,
@@ -75,6 +75,16 @@ namespace CdJsonModManager
             inspectorPanel.Margin = new Padding(10, 0, 0, 0);
             inspectorPanel.Dock = DockStyle.Fill;
             mainGrid.Controls.Add(inspectorPanel, 2, 0);
+            Resize += (s, e) => AdjustMainColumns();
+            AdjustMainColumns();
+        }
+
+        private void AdjustMainColumns()
+        {
+            if (mainGrid == null || mainGrid.ColumnStyles.Count < 3) return;
+            var wide = ClientSize.Width >= 1800;
+            mainGrid.ColumnStyles[0].Width = wide ? 430 : 348;
+            mainGrid.ColumnStyles[2].Width = wide ? 620 : 330;
         }
 
         private RoundedPanel BuildTopBar()
@@ -381,7 +391,7 @@ namespace CdJsonModManager
             var found = DetectGameFolder();
             if (string.IsNullOrEmpty(found))
             {
-                MessageBox.Show("Could not find Crimson Desert in any standard Steam path. Click Browse and pick the folder manually.", "Not detected", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("Could not find Crimson Desert in any standard Steam path. Click Browse and pick the folder manually.", "Not detected", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             gamePathText.Text = found;
@@ -1106,7 +1116,7 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             var bin64 = Path.Combine(gamePath, "bin64");

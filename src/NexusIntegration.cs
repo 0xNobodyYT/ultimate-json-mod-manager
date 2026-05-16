@@ -327,7 +327,7 @@ namespace CdJsonModManager
                 var modId = NexusLink.ParseModIdFromUrl(urlBox.Text);
                 if (!modId.HasValue || modId.Value <= 0)
                 {
-                    MessageBox.Show("Could not parse a Nexus mod ID from that input.\r\nExample: https://www.nexusmods.com/crimsondesert/mods/1072", "Invalid input", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    UiSafe.Msg("Could not parse a Nexus mod ID from that input.\r\nExample: https://www.nexusmods.com/crimsondesert/mods/1072", "Invalid input", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
                 ResolvedModId = modId.Value;

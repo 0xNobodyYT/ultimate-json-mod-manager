@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -20,8 +20,8 @@ using System.Xml.XPath;
 [assembly: AssemblyDescription("Ultimate JSON Mod Manager for Crimson Desert")]
 [assembly: AssemblyCompany("0xNobody")]
 [assembly: AssemblyProduct("Ultimate JSON Mod Manager")]
-[assembly: AssemblyFileVersion("1.5.2.0")]
-[assembly: AssemblyVersion("1.5.2.0")]
+[assembly: AssemblyFileVersion("1.5.3.0")]
+[assembly: AssemblyVersion("1.5.3.0")]
 
 namespace CdJsonModManager
 {
@@ -32,7 +32,7 @@ namespace CdJsonModManager
         public const string DonateUrl = "https://buymeacoffee.com/0xNobody";
         public const string BugReportRepo = "0xNobodyYT/ultimate-json-mod-manager";
         public const string UpdateRepo = "0xNobodyYT/ultimate-json-mod-manager";
-        public const string AppVersion = "1.5.2";
+        public const string AppVersion = "1.5.3";
         public const string NexusGameDomain = "crimsondesert";
         public const int NexusAppModId = 2454;
         public const string NexusAppPageUrl = "https://www.nexusmods.com/crimsondesert/mods/2454";
@@ -139,6 +139,7 @@ namespace CdJsonModManager
         private RoundedPanel installPanel;
         private RoundedPanel workspacePanel;
         private RoundedPanel inspectorPanel;
+        private TableLayoutPanel mainGrid;
         private FlowLayoutPanel themeSwatchHost;
         private FlowLayoutPanel presetRailHost;
         private DarkTabControl tabs;
@@ -223,13 +224,13 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             var selected = mods.Where(m => activeBoxes.ContainsKey(m.Path) && activeBoxes[m.Path].Checked).ToList();
             if (selected.Count == 0)
             {
-                MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             RunBackgroundOperation(() => ApplyByPazAppend(selected), "Applying " + selected.Count + " mod(s)...");
@@ -257,12 +258,14 @@ namespace CdJsonModManager
         {
             if (operationRunning)
             {
-                MessageBox.Show("UJMM is already working. Please wait for the current operation to finish.", "Busy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("UJMM is already working. Please wait for the current operation to finish.", "Busy", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             operationRunning = true;
             var oldCursor = Cursor.Current;
             Cursor.Current = Cursors.WaitCursor;
+            if (summaryLabel != null) summaryLabel.Text = label;
+            if (workspaceCounter != null) workspaceCounter.Text = "Working...";
             Log(label);
             Task.Run(() =>
             {
@@ -276,7 +279,7 @@ namespace CdJsonModManager
                     try
                     {
                         BeginInvoke(new Action(() =>
-                            MessageBox.Show("Operation failed:\r\n\r\n" + ex.Message, "UJMM", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                            UiSafe.Msg("Operation failed:\r\n\r\n" + ex.Message, "UJMM", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                     }
                     catch { }
                 }
@@ -290,6 +293,7 @@ namespace CdJsonModManager
                             Cursor.Current = oldCursor;
                             UpdateStatusPills();
                             UpdateBottomSummary();
+                            RefreshPatchList();
                         }));
                     }
                     catch

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -22,8 +22,7 @@ namespace CdJsonModManager
         {
             var overlays = selected.Where(m => (m.FormatTag == "RAW" || m.FormatTag == "BROWSER") && m.OverlayFolders != null && m.OverlayFolders.Count > 0).ToList();
             if (overlays.Count == 0) return 0;
-            var answer = MessageBox.Show("Install " + overlays.Count + " RAW/Browser overlay mod(s)?\r\n\r\nUJMM will copy compiled overlay folders as-is. Loose RAW/Browser folders will be packed into 0.paz + 0.pamt, then registered in meta\\0.papgt.", "Install overlays?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-            if (answer != DialogResult.Yes) return 0;
+            Log("Installing " + overlays.Count + " RAW/Browser overlay mod(s).");
             var papgtLive = Path.Combine(gamePath, "meta", "0.papgt");
             var papgtBackup = Path.GetFullPath(Path.Combine(PazBackupsRoot(), "..", "0.papgt.original"));
             Directory.CreateDirectory(Path.GetDirectoryName(papgtBackup));
@@ -254,12 +253,15 @@ namespace CdJsonModManager
             Directory.CreateDirectory(targetFolder);
             var paz = new MemoryStream();
             var originalIndex = new OverlayOriginalIndex(gameRoot, PreferredOverlaySourceGroup(sourceFolder));
+            int correctedPaths = 0;
+            int encryptedFiles = 0;
             foreach (var file in files)
             {
                 var original = originalIndex.Find(file.RelativePath);
                 if (original != null && original.Corrected && !string.Equals(GameVfsResolver.Normalize(file.RelativePath), GameVfsResolver.Normalize(original.ResolvedPath), StringComparison.OrdinalIgnoreCase))
                 {
-                    if (log != null) log("Overlay path corrected: " + file.RelativePath + " -> " + original.ResolvedPath + " (" + original.GroupName + ").");
+                    correctedPaths++;
+                    if (log != null && correctedPaths <= 8) log("Overlay path corrected: " + file.RelativePath + " -> " + original.ResolvedPath + " (" + original.GroupName + ").");
                     file.RelativePath = original.ResolvedPath.Replace('\\', '/');
                     file.DirectoryPath = NormalizeOverlayDirectory(Path.GetDirectoryName(file.RelativePath) ?? "");
                     file.FileName = Path.GetFileName(file.RelativePath);
@@ -272,7 +274,7 @@ namespace CdJsonModManager
                 if (((file.EntryFlags >> 4) & 0x0F) == 3)
                 {
                     file.PackedBytes = ArchiveExtractor.CryptChaCha20ByFileName(file.PackedBytes, file.FileName);
-                    if (log != null) log("Overlay " + file.RelativePath + ": encrypted ChaCha20 using matching game flags 0x" + file.EntryFlags.ToString("X4") + ".");
+                    encryptedFiles++;
                 }
                 var aligned = AlignUp((uint)paz.Position, 16);
                 while (paz.Position < aligned) paz.WriteByte(0);
@@ -284,6 +286,11 @@ namespace CdJsonModManager
             File.WriteAllBytes(Path.Combine(targetFolder, "0.paz"), pazBytes);
             var pamtBytes = BuildLooseOverlayPamt(files, pazBytes);
             File.WriteAllBytes(Path.Combine(targetFolder, "0.pamt"), pamtBytes);
+            if (log != null)
+            {
+                if (correctedPaths > 8) log("Overlay path corrected for " + correctedPaths + " file(s); first 8 shown.");
+                if (encryptedFiles > 0) log("Overlay encrypted " + encryptedFiles + " file(s) with matching game flags.");
+            }
         }
 
         private static string NormalizeOverlayPatchOutputPath(string relativePath)

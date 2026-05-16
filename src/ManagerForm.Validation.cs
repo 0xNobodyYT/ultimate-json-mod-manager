@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -22,14 +22,14 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             var selected = mods.Where(mod => activeBoxes.ContainsKey(mod.Path) && activeBoxes[mod.Path].Checked).ToList();
             if (selected.Count == 0)
             {
-                MessageBox.Show("Enable at least one mod first.", "No mods selected", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("Enable at least one mod first.", "No mods selected", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -132,13 +132,13 @@ namespace CdJsonModManager
             if (issues.Count == 0)
             {
                 Log("Match check passed.");
-                MessageBox.Show("Mods match this game version - every patch's original bytes match what's installed.", "Match check passed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("Mods match this game version - every patch's original bytes match what's installed.", "Match check passed", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
                 foreach (var issue in issues.Take(80)) Log(issue);
                 if (issues.Count > 80) Log("... plus " + (issues.Count - 80) + " more issue(s).");
-                MessageBox.Show("Some patches don't match the installed game (likely a Crimson Desert update). Check the inspector log for details - those mods may need to be updated for this game version.", "Match failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                UiSafe.Msg("Some patches don't match the installed game (likely a Crimson Desert update). Check the inspector log for details - those mods may need to be updated for this game version.", "Match failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 

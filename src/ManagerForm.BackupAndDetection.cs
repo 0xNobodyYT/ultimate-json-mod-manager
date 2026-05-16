@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -100,7 +100,7 @@ namespace CdJsonModManager
             var manifestPath = RestoreGuardManifestPath();
             if (string.IsNullOrEmpty(manifestPath) || !File.Exists(manifestPath))
             {
-                MessageBox.Show(
+                UiSafe.Msg(
                     "Restore was blocked because this backup does not have UJMM's restore-guard metadata.\r\n\r\n" +
                     "This can happen with backups made by older builds. To avoid restoring stale files over a newer game update, UJMM will not use this backup automatically.\r\n\r\n" +
                     "If the game was updated, verify/repair the game files, then create a fresh Backup before applying mods again.",
@@ -146,7 +146,7 @@ namespace CdJsonModManager
 
                 if (problems.Count == 0) return true;
 
-                MessageBox.Show(
+                UiSafe.Msg(
                     "Restore was blocked because the current game files no longer match the state UJMM created when the mods were applied.\r\n\r\n" +
                     string.Join("\r\n", problems.Take(6).ToArray()) +
                     (problems.Count > 6 ? "\r\n..." : "") +
@@ -157,7 +157,7 @@ namespace CdJsonModManager
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Restore was blocked because restore_guard.json could not be validated:\r\n\r\n" + ex.Message, "Restore blocked", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                UiSafe.Msg("Restore was blocked because restore_guard.json could not be validated:\r\n\r\n" + ex.Message, "Restore blocked", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 Log("Restore blocked: guard validation failed: " + ex.Message);
                 return false;
             }
@@ -199,11 +199,11 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
-            var ans = MessageBox.Show(
+            var ans = UiSafe.Msg(
                 "Save the current game state as the revert point?\r\n\r\n" +
                 "What gets saved (~few MB total):\r\n" +
                 "  * meta\\0.papgt (registration file)\r\n" +
@@ -280,7 +280,7 @@ namespace CdJsonModManager
                 WriteRestoreGuardManifest("manual-backup");
 
                 UpdateInspectorBackup();
-                MessageBox.Show(
+                UiSafe.Msg(
                     "Backup created.\r\n\r\n" +
                     "Captured: " + saved + " index file(s) + " + pazCount + " paz length record(s).\r\n\r\n" +
                     "Until you click Apply Mods, this is the state Restore Backup will revert to.",
@@ -288,7 +288,7 @@ namespace CdJsonModManager
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Backup failed: " + ex.Message, "Backup error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Backup failed: " + ex.Message, "Backup error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -296,11 +296,11 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
-            var answer = MessageBox.Show("Create/overwrite the 0.papgt backup from the current game file?", "Backup 0.papgt", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            var answer = UiSafe.Msg("Create/overwrite the 0.papgt backup from the current game file?", "Backup 0.papgt", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (answer != DialogResult.Yes) return;
 
             try
@@ -310,12 +310,12 @@ namespace CdJsonModManager
                     WriteRestoreGuardManifest("manual-papgt-backup");
                     Log("Backed up 0.papgt to backups/ and game/_jmm_backups/.");
                     UpdateInspectorBackup();
-                    MessageBox.Show("Backup created.", "Backup complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    UiSafe.Msg("Backup created.", "Backup complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Backup failed: " + ex.Message, "Backup failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Backup failed: " + ex.Message, "Backup failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -323,18 +323,18 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             var backup = File.Exists(GamePapgtBackupPath()) ? GamePapgtBackupPath() : AppPapgtBackupPath();
             if (!File.Exists(backup))
             {
-                MessageBox.Show("No 0.papgt backup exists yet. Use Backup 0.papgt first.", "No backup", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                UiSafe.Msg("No 0.papgt backup exists yet. Use Backup 0.papgt first.", "No backup", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            var answer = MessageBox.Show("Restore 0.papgt from backup?\r\n\r\nThis overwrites the current meta/0.papgt registration file.", "Restore backup", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            var answer = UiSafe.Msg("Restore 0.papgt from backup?\r\n\r\nThis overwrites the current meta/0.papgt registration file.", "Restore backup", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (answer != DialogResult.Yes) return;
             if (!ValidateRestoreGuard()) return;
 
@@ -345,11 +345,11 @@ namespace CdJsonModManager
                 config["modsInstalled"] = false;
                 SaveConfig(config);
                 Log("Restored meta/0.papgt from backup: " + backup);
-                MessageBox.Show("0.papgt restored.", "Restore complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("0.papgt restored.", "Restore complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Restore failed: " + ex.Message, "Restore failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Restore failed: " + ex.Message, "Restore failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

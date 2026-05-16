@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -857,72 +857,13 @@ namespace CdJsonModManager
             if (patchList == null) return;
 
             string filter = patchSearchBox != null ? (patchSearchBox.Text ?? "").Trim().ToLowerInvariant() : "";
-            // Show all active (checked) mods' patches first - these will actually apply.
-            // Then, if the focused mod isn't already active, show its patches as a preview.
+            // Keep the board cheap: it previews only the focused mod. Apply still uses
+            // every checked mod, but the UI no longer materializes thousands of rows.
             var pending = new List<ListViewItem>(256);
-            int activeCount = 0;
-            int activeAppliedCount = 0;
-            int activeOverlayCount = 0;
             var focused = FocusedMod();
-            bool focusedAlreadyActive = false;
-            foreach (var mod in mods)
-            {
-                if (!activeBoxes.ContainsKey(mod.Path) || !activeBoxes[mod.Path].Checked) continue;
-                if (focused != null && string.Equals(mod.Path, focused.Path, StringComparison.OrdinalIgnoreCase)) focusedAlreadyActive = true;
-                if (IsOverlayMod(mod))
-                {
-                    foreach (var folder in OverlayFoldersForGroup(mod, GroupFor(mod)))
-                    {
-                        foreach (var file in OverlayFiles(folder))
-                        {
-                            var label = OverlayFileLabel(folder, file);
-                            var target = OverlayTargetDisplay(mod, folder);
-                            activeOverlayCount++;
-                            if (filter.Length > 0
-                                && !label.ToLowerInvariant().Contains(filter)
-                                && !target.ToLowerInvariant().Contains(filter)
-                                && !mod.Name.ToLowerInvariant().Contains(filter))
-                            {
-                                continue;
-                            }
-                            var item = new ListViewItem(label);
-                            item.SubItems.Add(target);
-                            item.Tag = null;
-                            item.Checked = true;
-                            pending.Add(item);
-                        }
-                    }
-                    continue;
-                }
-                var group = GroupFor(mod);
-                int idx = 0;
-                foreach (var change in mod.ChangesForGroup(group))
-                {
-                    var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
-                    var target = PatchTargetDisplay(change);
-                    activeCount++;
-                    var key = PatchKey(mod, group, idx);
-                    bool patchEnabled = !disabledPatches.Contains(key);
-                    if (patchEnabled) activeAppliedCount++;
-                    idx++;
-                    if (filter.Length > 0
-                        && !label.ToLowerInvariant().Contains(filter)
-                        && !target.ToLowerInvariant().Contains(filter)
-                        && !mod.Name.ToLowerInvariant().Contains(filter))
-                    {
-                        continue;
-                    }
-                    var item = new ListViewItem(label);
-                    item.SubItems.Add(target);
-                    item.Tag = key;
-                    item.Checked = patchEnabled;
-                    pending.Add(item);
-                }
-            }
-
             int previewCount = 0;
             int previewOverlayCount = 0;
-            if (focused != null && !focusedAlreadyActive)
+            if (focused != null)
             {
                 if (IsOverlayMod(focused))
                 {
@@ -951,30 +892,29 @@ namespace CdJsonModManager
                 }
                 else
                 {
-                var group = GroupFor(focused);
-                int idx = 0;
-                foreach (var change in focused.ChangesForGroup(group))
-                {
-                    var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
-                    var target = PatchTargetDisplay(change);
-                    var key = PatchKey(focused, group, idx);
-                    bool patchEnabled = !disabledPatches.Contains(key);
-                    idx++;
-                    if (filter.Length > 0
-                        && !label.ToLowerInvariant().Contains(filter)
-                        && !target.ToLowerInvariant().Contains(filter)
-                        && !focused.Name.ToLowerInvariant().Contains(filter))
+                    var group = GroupFor(focused);
+                    int idx = 0;
+                    foreach (var change in focused.ChangesForGroup(group))
                     {
-                        continue;
+                        var label = string.IsNullOrEmpty(change.CleanLabel) ? "(unnamed patch)" : change.CleanLabel;
+                        var target = PatchTargetDisplay(change);
+                        var key = PatchKey(focused, group, idx);
+                        bool patchEnabled = !disabledPatches.Contains(key);
+                        idx++;
+                        if (filter.Length > 0
+                            && !label.ToLowerInvariant().Contains(filter)
+                            && !target.ToLowerInvariant().Contains(filter)
+                            && !focused.Name.ToLowerInvariant().Contains(filter))
+                        {
+                            continue;
+                        }
+                        var item = new ListViewItem(label);
+                        item.SubItems.Add(target);
+                        item.Tag = key;
+                        item.Checked = patchEnabled;
+                        pending.Add(item);
+                        previewCount++;
                     }
-                    var item = new ListViewItem("preview - " + label);
-                    item.SubItems.Add(target);
-                    item.ForeColor = Color.FromArgb(150, 138, 100);
-                    item.Tag = key;
-                    item.Checked = patchEnabled;
-                    pending.Add(item);
-                    previewCount++;
-                }
                 }
             }
 
@@ -993,13 +933,12 @@ namespace CdJsonModManager
 
             if (workspaceCounter != null)
             {
-                int total = 0;
-                foreach (var mod in mods) total += mod.Changes.Count;
-                var lead = activeAppliedCount + " / " + total + " will apply";
-                if (activeOverlayCount > 0) lead += " + " + activeOverlayCount + " overlay file" + (activeOverlayCount == 1 ? "" : "s");
-                if (previewCount > 0) lead += " - " + previewCount + " preview";
+                var activeMods = activeBoxes.Values.Count(box => box.Checked);
+                var lead = activeMods + " active mod" + (activeMods == 1 ? "" : "s");
+                if (focused == null) lead += " - select a mod to inspect patches";
+                else if (previewCount > 0) lead += " - " + previewCount + " patch" + (previewCount == 1 ? "" : "es") + " shown";
                 if (filter.Length > 0) lead += " - filtered: \"" + filter + "\"";
-                if (previewOverlayCount > 0) lead += " - " + previewOverlayCount + " overlay file preview" + (previewOverlayCount == 1 ? "" : "s");
+                if (previewOverlayCount > 0) lead += " - " + previewOverlayCount + " overlay file" + (previewOverlayCount == 1 ? "" : "s") + " shown";
                 workspaceCounter.Text = lead;
             }
         }
@@ -1124,7 +1063,7 @@ namespace CdJsonModManager
 
             var names = string.Join("\r\n", targets.Take(8).Select(m => "  * " + m.Name).ToArray());
             if (targets.Count > 8) names += "\r\n  ...";
-            var answer = MessageBox.Show("Delete " + targets.Count + " mod" + (targets.Count == 1 ? "" : "s") + " from the manager?\r\n\r\n" + names + "\r\n\r\nThis removes them from mods/ but does not edit game files.", "Delete mod", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            var answer = UiSafe.Msg("Delete " + targets.Count + " mod" + (targets.Count == 1 ? "" : "s") + " from the manager?\r\n\r\n" + names + "\r\n\r\nThis removes them from mods/ but does not edit game files.", "Delete mod", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (answer != DialogResult.Yes) return;
 
             try
@@ -1169,7 +1108,7 @@ namespace CdJsonModManager
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Could not delete mod: " + ex.Message, "Delete failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Could not delete mod: " + ex.Message, "Delete failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1179,11 +1118,10 @@ namespace CdJsonModManager
             try { RevertPazAppend(); } catch (Exception ex) { Log("Paz/pamt revert: " + ex.Message); }
             try { RevertLooseFileApply(); } catch (Exception ex) { Log("Loose-file revert: " + ex.Message); }
             var activeCount = activeBoxes.Values.Count(box => box.Checked);
-            foreach (var box in activeBoxes.Values)
-            {
-                box.Checked = false;
-            }
-            Log(activeCount > 0 ? "Uninstalled/deactivated " + activeCount + " active JSON mod(s)." : "No active JSON mods to deactivate.");
+            Log(activeCount > 0 ? "Restored game to vanilla; kept " + activeCount + " mod selection(s) ready to apply again." : "Restore finished; no active mod selections were changed.");
+            UpdateStatusPills();
+            UpdateBottomSummary();
+            RefreshPatchList();
         }
 
         private void UpdateStatusPills()

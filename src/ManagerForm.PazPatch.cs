@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -22,13 +22,13 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             var selected = mods.Where(m => activeBoxes.ContainsKey(m.Path) && activeBoxes[m.Path].Checked).ToList();
             if (selected.Count == 0)
             {
-                MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             ApplyByPazAppend(selected);
@@ -38,12 +38,12 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             if (selected.Count == 0)
             {
-                MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             var applyCacheDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".cache", "apply_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"));
@@ -58,6 +58,8 @@ namespace CdJsonModManager
             var byGameFile = new Dictionary<string, List<PatchChange>>(StringComparer.OrdinalIgnoreCase);
             int skippedDisabled = 0;
             int skippedUnresolved = 0;
+            var unresolvedByMod = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var unresolvedSamples = new List<string>();
             foreach (var mod in selected)
             {
                 if (mod.FormatTag == "RAW" || mod.FormatTag == "BROWSER") continue;
@@ -72,7 +74,10 @@ namespace CdJsonModManager
                     {
                         skippedUnresolved++;
                         var reason = string.IsNullOrWhiteSpace(c.ResolveError) ? "" : " (" + c.ResolveError + ")";
-                        Log("Skipped unresolved patch [" + mod.Name + "]: " + c.Label + reason);
+                        if (!unresolvedByMod.ContainsKey(mod.Name)) unresolvedByMod[mod.Name] = 0;
+                        unresolvedByMod[mod.Name]++;
+                        if (unresolvedSamples.Count < 12)
+                            unresolvedSamples.Add("Skipped unresolved patch [" + mod.Name + "]: " + c.Label + reason);
                         continue;
                     }
                     if (disabledPatches.Contains(key)) { skippedDisabled++; continue; }
@@ -80,28 +85,23 @@ namespace CdJsonModManager
                     byGameFile[c.GameFile].Add(c);
                 }
             }
+            foreach (var sample in unresolvedSamples) Log(sample);
+            if (skippedUnresolved > unresolvedSamples.Count) Log("... plus " + (skippedUnresolved - unresolvedSamples.Count) + " more unresolved patch(es).");
+            foreach (var pair in unresolvedByMod.OrderByDescending(p => p.Value).Take(12))
+                Log("Unresolved summary: " + pair.Key + " skipped " + pair.Value + " patch(es).");
             if (skippedUnresolved > 0) Log("Skipped " + skippedUnresolved + " unresolved patch(es).");
             if (skippedDisabled > 0) Log("Skipped " + skippedDisabled + " patch(es) disabled in the Patch Board.");
             if (byGameFile.Count == 0)
             {
                 if (overlayInstalled > 0)
                 {
-                    MessageBox.Show("Installed " + overlayInstalled + " overlay package(s).", "Mods applied", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Log("Installed " + overlayInstalled + " overlay package(s).");
                 }
-                else MessageBox.Show("Selected mods have no patches with a target game_file.", "Nothing to apply", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                else Log("Selected mods have no patches with a target game_file.");
                 return;
             }
 
-            var pre = MessageBox.Show(
-                "Apply " + byGameFile.Count + " modded game file(s) to your Crimson Desert install?\r\n\r\n" +
-                "How it works:\r\n" +
-                "  * Modded bytes are APPENDED to the existing archive(s) - original data is never overwritten.\r\n" +
-                "  * The archive index (PAMT) is patched in place to point at the new bytes.\r\n" +
-                "  * Pre-apply length of each archive + the original PAMT are saved to <game>\\_jmm_backups\\.\r\n" +
-                "  * Click 'Restore Backup' to fully revert (truncates archives back, restores the PAMT).\r\n\r\n" +
-                "Continue?",
-                "Apply mods?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-            if (pre != DialogResult.Yes) return;
+            Log("Applying " + byGameFile.Count + " modded game file(s).");
 
             var pamtPath = Path.Combine(gamePath, "0008", "0.pamt");
             var pazDir = Path.Combine(gamePath, "0008");
@@ -113,7 +113,7 @@ namespace CdJsonModManager
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Could not parse PAMT: " + ex.Message, "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Could not parse PAMT: " + ex.Message, "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -133,7 +133,7 @@ namespace CdJsonModManager
             }
             if (workItems.Count == 0)
             {
-                MessageBox.Show("No matching archive entries found for the selected mods.", "Apply aborted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                UiSafe.Msg("No matching archive entries found for the selected mods.", "Apply aborted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -352,12 +352,9 @@ namespace CdJsonModManager
             if (totalApplied == 0)
             {
                 WriteRestoreGuardManifest("apply-no-byte-patches");
-                MessageBox.Show(
-                    "No byte patches were applied.\r\n\r\n" +
-                    (totalMismatch > 0 ? totalMismatch + " patch(es) failed byte checks. See the log for details.\r\n" : "") +
-                    (fileSkipped > 0 ? fileSkipped + " file(s) were skipped.\r\n" : "") +
-                    "UJMM did not rewrite the PAMT/PAPGT metadata for byte patches.",
-                    "Nothing applied", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Log("No byte patches were applied."
+                    + (totalMismatch > 0 ? " " + totalMismatch + " patch(es) failed byte checks." : "")
+                    + (fileSkipped > 0 ? " " + fileSkipped + " file(s) were skipped." : ""));
                 return;
             }
 
@@ -457,7 +454,7 @@ namespace CdJsonModManager
             {
                 Log("PAMT write failed: " + ex.Message);
                 WriteRestoreGuardManifest("apply-failed-after-paz-append");
-                MessageBox.Show("PAMT write failed: " + ex.Message + "\r\n\r\nThe paz files were appended to but the index wasn't updated. The game will still work; click 'Restore Backup' to truncate the appended bytes.", "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("PAMT write failed: " + ex.Message + "\r\n\r\nThe paz files were appended to but the index wasn't updated. The game will still work; click 'Restore Backup' to truncate the appended bytes.", "Apply failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -512,12 +509,10 @@ namespace CdJsonModManager
             }
             WriteRestoreGuardManifest("post-apply");
 
-            MessageBox.Show(
-                "Applied " + totalApplied + " patches across " + pamtChanges + " archive entries.\r\n" +
-                (totalMismatch > 0 ? totalMismatch + " patch(es) skipped due to byte mismatch (see log).\r\n" : "") +
-                (fileSkipped > 0 ? fileSkipped + " file(s) skipped entirely.\r\n" : "") +
-                "\r\nLaunch Crimson Desert and test.\r\nClick 'Restore Backup' to fully revert.",
-                "Mods applied", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Log("Apply complete: " + totalApplied + " patch(es) across " + pamtChanges + " archive entr" + (pamtChanges == 1 ? "y" : "ies")
+                + (totalMismatch > 0 ? "; " + totalMismatch + " byte mismatch(es)" : "")
+                + (fileSkipped > 0 ? "; " + fileSkipped + " file(s) skipped" : "")
+                + ".");
         }
 
 
@@ -674,13 +669,13 @@ namespace CdJsonModManager
         {
             if (!IsGameFolder(gamePath))
             {
-                MessageBox.Show("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("Set the Crimson Desert folder first.", "Game folder missing", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             var selected = mods.Where(m => activeBoxes.ContainsKey(m.Path) && activeBoxes[m.Path].Checked).ToList();
             if (selected.Count == 0)
             {
-                MessageBox.Show("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("Tick at least one mod's checkbox first.", "No mods active", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -699,11 +694,11 @@ namespace CdJsonModManager
             }
             if (byGameFile.Count == 0)
             {
-                MessageBox.Show("Selected mods have no patches with a target game_file.", "Nothing to apply", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("Selected mods have no patches with a target game_file.", "Nothing to apply", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
-            var pre = MessageBox.Show(
+            var pre = UiSafe.Msg(
                 "This will write modded copies of " + byGameFile.Count + " game file(s) into your Crimson Desert folder as loose files (the engine reads loose files first).\r\n\r\n" +
                 "* Original game archives are NEVER modified.\r\n" +
                 "* Any pre-existing file at a target path is backed up first.\r\n" +
@@ -785,7 +780,7 @@ namespace CdJsonModManager
 
             if (work.Count == 0)
             {
-                MessageBox.Show("Nothing to apply (no files prepared cleanly). Run Check Match to diagnose.", "Apply aborted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                UiSafe.Msg("Nothing to apply (no files prepared cleanly). Run Check Match to diagnose.", "Apply aborted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -837,7 +832,7 @@ namespace CdJsonModManager
             SaveLooseManifest(manifest);
             Log("Apply: wrote " + written + " loose file(s)" + (backedUp > 0 ? " (backed up " + backedUp + " pre-existing)" : ""));
 
-            MessageBox.Show(
+            UiSafe.Msg(
                 "Wrote " + written + " modded file(s) to your game folder as loose files.\r\n" +
                 (backedUp > 0 ? backedUp + " pre-existing file(s) were backed up to <game>\\_ujmm_probe_backups\\.\r\n" : "") +
                 "\r\nLaunch Crimson Desert and test the modded behavior.\r\n" +

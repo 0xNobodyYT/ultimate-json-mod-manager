@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -213,7 +213,7 @@ namespace CdJsonModManager
         {
             if (!string.IsNullOrEmpty(nexusApiKey))
             {
-                var ans = MessageBox.Show("Disconnect from Nexus? You can reconnect any time.", "Disconnect", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                var ans = UiSafe.Msg("Disconnect from Nexus? You can reconnect any time.", "Disconnect", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (ans != DialogResult.Yes) return;
                 nexusApiKey = "";
                 nexusUserName = "";
@@ -244,7 +244,7 @@ namespace CdJsonModManager
                     var lower = err.ToLowerInvariant();
                     if (lower.Contains("application id was invalid") || lower.Contains("application id"))
                     {
-                        MessageBox.Show(
+                        UiSafe.Msg(
                             "Nexus sign-in is not yet enabled for this app.\r\n\r\n" +
                             "We're waiting for Nexus Mods to register Ultimate JSON Mod Manager so the browser sign-in can work. " +
                             "Once it's approved, this button will Just Work - no key pasting needed.\r\n\r\n" +
@@ -255,7 +255,7 @@ namespace CdJsonModManager
                     }
                     else
                     {
-                        MessageBox.Show("Sign-in did not complete: " + err, "Sign-in failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        UiSafe.Msg("Sign-in did not complete: " + err, "Sign-in failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     }
                 }
             }
@@ -278,7 +278,7 @@ namespace CdJsonModManager
             var info = NexusClient.Validate(key, out error);
             if (info == null || !info.ContainsKey("name"))
             {
-                MessageBox.Show("That key didn't validate against Nexus.\r\n\r\n" + error, "Invalid key", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UiSafe.Msg("That key didn't validate against Nexus.\r\n\r\n" + error, "Invalid key", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             nexusApiKey = key;
@@ -546,18 +546,18 @@ namespace CdJsonModManager
             if (info == null) info = CheckLatestAppVersionFromNexus(out err);
             if (info == null || string.IsNullOrEmpty(info.TagName))
             {
-                MessageBox.Show("No Nexus update info available.\r\n\r\n" + (string.IsNullOrEmpty(err) ? "Sign in with Nexus, or open the UJMM Nexus page manually." : err), "No update info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("No Nexus update info available.\r\n\r\n" + (string.IsNullOrEmpty(err) ? "Sign in with Nexus, or open the UJMM Nexus page manually." : err), "No update info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             var compare = UpdateChecker.CompareVersions(info.TagName, Program.AppVersion);
             if (compare < 0)
             {
-                MessageBox.Show("Nexus currently lists version " + info.TagName.TrimStart('v', 'V') + ".\r\n\r\nYou're running " + Program.AppVersion + ", which is newer than the version visible on Nexus.", "No Nexus update", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("Nexus currently lists version " + info.TagName.TrimStart('v', 'V') + ".\r\n\r\nYou're running " + Program.AppVersion + ", which is newer than the version visible on Nexus.", "No Nexus update", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (!UpdateChecker.IsNewer(info.TagName, Program.AppVersion))
             {
-                MessageBox.Show("You're on the latest Nexus version (" + Program.AppVersion + ").", "Up to date", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UiSafe.Msg("You're on the latest Nexus version (" + Program.AppVersion + ").", "Up to date", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             using (var dlg = new UpdateDialog(info))
@@ -640,7 +640,7 @@ namespace CdJsonModManager
                 BringToFront();
                 if (string.IsNullOrEmpty(nexusApiKey))
                 {
-                    var ans = MessageBox.Show("A Nexus download was triggered, but you're not signed in yet.\r\n\r\nSign in now?", "Sign in required", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                    var ans = UiSafe.Msg("A Nexus download was triggered, but you're not signed in yet.\r\n\r\nSign in now?", "Sign in required", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
                     if (ans == DialogResult.Yes) ConnectViaSso();
                     if (string.IsNullOrEmpty(nexusApiKey)) return;
                 }
@@ -653,7 +653,7 @@ namespace CdJsonModManager
                 }
                 if (!string.Equals(parsed.Game, Program.NexusGameDomain, StringComparison.OrdinalIgnoreCase))
                 {
-                    var ans = MessageBox.Show("This download is for game '" + parsed.Game + "'. This manager only supports '" + Program.NexusGameDomain + "'.\r\n\r\nIgnore?", "Wrong game", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    var ans = UiSafe.Msg("This download is for game '" + parsed.Game + "'. This manager only supports '" + Program.NexusGameDomain + "'.\r\n\r\nIgnore?", "Wrong game", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
                 Log("Nexus download requested: mod " + parsed.ModId + " file " + parsed.FileId);
